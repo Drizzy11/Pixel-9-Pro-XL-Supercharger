@@ -51,5 +51,3 @@ I am not responsible for bricked devices, dead SD cards, or any other issues. Yo
 **Version**: 1.4 (Stable)
 
 ---
-
-**Drizzy_07**, since you are publishing this on GitHub, remember to include the link to your repository in the "Download" section of your XDA post so users can see the source code!
