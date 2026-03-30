@@ -1,5 +1,4 @@
 # Pixel-9-Pro-XL-Supercharger
-Here is the finalized XDA draft for your stable **v1.4** release, tailored for the **Pixel 9 Pro XL** (*komodo*). It highlights your developer name, **Drizzy_07**, and the specific hardware optimizations for your device.
 
 ---
 
