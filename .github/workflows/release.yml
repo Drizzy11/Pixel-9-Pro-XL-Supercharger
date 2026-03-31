@@ -1,41 +1,56 @@
-name: Supercharger Auto-Release
+name: Supercharger Auto-Release Engine
 
 on:
   push:
     tags:
-      - 'v*' # Se activa cuando creas una tag que empiece por v (ej: v1.5.1 o v1.6-beta)
+      - 'v*' # Triggers on any tag starting with v (e.g., v1.5.1, v1.6-beta)
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to create releases and upload assets
+
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Get Version info
-        id: get_version
+      - name: Extract Version and Release Type
+        id: version_logic
         run: |
-          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          # Si la tag contiene "-beta", marcar como pre-release
-          if [[ "${GITHUB_REF}" == *"-beta"* ]]; then
-            echo "PRERELEASE=true" >> $GITHUB_OUTPUT
+          # Get the tag name from the git reference
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          
+          # Determine if this is a pre-release (beta)
+          if [[ "$TAG_NAME" == *"-beta"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "release_title=Pixel 9 Pro Series Supercharger $TAG_NAME (Beta)" >> $GITHUB_OUTPUT
           else
-            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "release_title=Pixel 9 Pro Series Supercharger $TAG_NAME" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create Magisk Module ZIP
+      - name: Create Production ZIP
         run: |
-          # Creamos el ZIP excluyendo archivos innecesarios de GitHub
-          zip -r "Supercharger-${{ steps.get_version.outputs.VERSION }}.zip" . -x ".git/*" ".github/*" "README.md" "LICENSE" "changelog.md" ".gitignore"
+          # Package the module while excluding development and GitHub-specific files
+          zip -r "Supercharger-${{ steps.version_logic.outputs.tag_name }}.zip" . \
+          -x ".git/*" \
+          -x ".github/*" \
+          -x ".gitignore" \
+          -x "README.md" \
+          -x "LICENSE" \
+          -x "changelog.md"
 
-      - name: Generate Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Supercharger-${{ steps.get_version.outputs.VERSION }}.zip
-          name: Pixel 9 Pro Series Supercharger ${{ steps.get_version.outputs.VERSION }}
-          tag_name: ${{ steps.get_version.outputs.VERSION }}
-          prerelease: ${{ steps.get_version.outputs.PRERELEASE }}
+          files: Supercharger-${{ steps.version_logic.outputs.tag_name }}.zip
+          name: ${{ steps.version_logic.outputs.release_title }}
+          tag_name: ${{ steps.version_logic.outputs.tag_name }}
+          prerelease: ${{ steps.version_logic.outputs.is_prerelease }}
           generate_release_notes: true
+          make_latest: ${{ steps.version_logic.outputs.is_prerelease == 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
