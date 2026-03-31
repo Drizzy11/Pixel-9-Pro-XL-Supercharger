@@ -1,64 +1,60 @@
-# Pixel 9 Pro XL Supercharger 🚀
-**The Elite Hardware Optimization Module for *komodo***
+# Pixel 9 Pro XL Supercharger (v1.5 Final Stable) 🚀
 
-[![Version](https://img.shields.io/badge/Version-v1.5--Stable-blue?style=for-the-badge)](https://github.com/Drizzy07x/Pixel-9-Pro-XL-Supercharger)
-[![Device](https://img.shields.io/badge/Device-Pixel%209%20Pro%20XL-orange?style=for-the-badge)](https://github.com/Drizzy07x/Pixel-9-Pro-XL-Supercharger)
-[![Android](https://img.shields.io/badge/Android-16-green?style=for-the-badge)](https://github.com/Drizzy07x/Pixel-9-Pro-XL-Supercharger)
+The most advanced performance and efficiency engine specifically designed for the **Google Pixel 9 Pro XL (komodo)** running **Android 16 (Evolution X)**.
 
----
-
-### **Introduction**
-The **Pixel 9 Pro XL Supercharger** is a precision-tuned Magisk module built specifically for the ***komodo*** device. Unlike generic optimization scripts, this module is engineered to extract maximum performance from the **Tensor G4** processor, **16GB LPDDR5X RAM**, and ultra-fast **UFS 4.0 storage**.
-
-Specifically designed and optimized for **Android 16** (tested on **Evolution X 11.6.2**), this module ensures a locked-in smooth experience while maintaining long-term hardware integrity.
+Developed by: **Drizzy_07**
 
 ---
 
-### **💎 What's New in v1.5 Stable**
-* **Advanced Hardware Diagnostic Engine**: Automatically generates a technical log at `/data/adb/modules/p9pxl_supercharger/debug.log`.
-* **Thermal & RAM Monitoring**: Logs real-time SoC temperature and memory availability during the boot process to ensure peak performance.
-* **Dynamic Visual Dashboard**: Real-time status indicators in the Magisk app (⏳ for initializing, ✅ for success, ❌ for error).
-* **Automatic Updates**: Now supports Magisk's built-in update system via `update.json`.
+## 🧠 Core Philosophy
+This module transitions the Pixel 9 Pro XL from standard software constraints to a precision-tuned hardware-aware state. It focuses on maximizing the **16GB LPDDR5X RAM** and **UFS 4.0** storage while preserving the health of the **Tensor G4 SoC**.
 
 ---
 
-### **⚡ Core Features**
-* **Precision Memory Management**: Optimized Dalvik VM properties (`heapsize: 1GB`, `growthlimit: 512MB`) tailored for the **16GB RAM** capacity.
-* **UFS 4.0 Storage Boost**: Enhanced I/O scheduling (using `none` scheduler) and 512KB read-ahead buffers for near-instant app loading and gaming.
-* **Next-Gen UI Fluidity**: Forces the **Skia Vulkan (SkiaVK)** renderer and increases touch responsiveness for a consistent, locked 120Hz feel.
-* **Hardware Efficiency**: Applies subtle `powersave_bias` to the Tensor G4 core clusters to prevent thermal throttling during intense multitasking.
-* **Automated Maintenance**: Triggers an **SQLite VACUUM/REINDEX** and the **ART background compiler** (DexOpt) on every boot to keep the system database lean and fast.
+## ✨ Key Features
+
+### 📊 Evolutionary Visual Dashboard
+* **Dynamic Status Tracking**: Real-time Magisk UI updates during the boot process: `[⏳] Initializing` -> `[🧠] Hardware` -> `[🌐] Connectivity` -> `[🚀] Active`.
+* **Live Hardware Monitoring**: A 60-second background refresh loop displays the **Actual Temp** of the SoC directly in the Magisk Manager description.
+
+### 🧠 16GB RAM & Multitasking (LPDDR5X)
+* **Heap Optimization**: Locked Dalvik parameters (1GB Heap / 512MB Growth Limit) for extreme app retention.
+* **VFS Pressure Tuning**: Reduced cache pressure to **50** to leverage high RAM capacity and minimize physical disk I/O.
+
+### ⚡ UFS 4.0 Stability & Speed
+* **Filesystem Safety Patch**: Resolved "Read-Only" storage errors and screenshot failures by capping `nr_requests` at **128**.
+* **Intelligent Maintenance**: Background SQLite and ART optimization with a 180s delay and MediaProvider exclusion to ensure zero collisions with system tasks.
+* **None Scheduler**: Forced `none` I/O scheduler and optimized 512KB read-ahead for instantaneous data access.
+
+### 🌡️ Tensor G4 Thermal Control
+* **Power Management**: Triple-cluster `powersave_bias` integration for maximum battery efficiency during idle states.
+* **Capped Compilation**: Restricted background ART jobs to **4 threads** to prevent heat spikes and preserve battery longevity.
+
+### 🌐 Connectivity & UI Fluidity
+* **"Race to Sleep" Networking**: Aggressive TCP Fast Open (3) and Low Latency (1) tuning for optimized 5G and Wi-Fi 7 performance.
+* **Graphics Engine**: Forced **SkiaVK** rendering and HW UI acceleration with dithering disabled for peak frame stability.
+* **Touch Response**: Low-latency touch tuning via `resetprop` for ultra-responsive navigation.
 
 ---
 
-### **🛠️ Installation**
-1.  Download the latest **`Supercharger-v1.5-Stable.zip`** from the [Releases](https://github.com/Drizzy07x/Pixel-9-Pro-XL-Supercharger/releases) tab.
-2.  Open the **Magisk** app and navigate to the **Modules** tab.
-3.  Select **"Install from storage"** and choose the ZIP file.
-4.  Reboot your device.
-5.  **Important**: Wait **90 seconds** after reaching the home screen for the optimizations to trigger.
+## 🛠️ Installation
+1. Download the `Supercharger-v1.5-Final.zip`.
+2. Flash via **Magisk Manager**.
+3. Reboot and wait **50 seconds** for the dashboard to initialize.
+4. Check `/data/adb/modules/p9pxl_supercharger/debug.log` for a full diagnostic report.
 
 ---
 
-### **🔍 Verification & Support**
-No terminal commands are required. To verify the module is working:
-1.  **Check Magisk**: The module description will update to:  
-    > `Status: [RUNNING] - System Optimized ✅ Efficiency Active`
-2.  **Check Logs**: For a full technical breakdown, inspect:  
-    `/data/adb/modules/p9pxl_supercharger/debug.log`
+## 📝 Compatibility
+* **Device**: Google Pixel 9 Pro XL (komodo).
+* **OS**: Android 16 (Tested on Evolution X).
+* **Kernel**: Works with Stock or custom kernels.
 
 ---
 
-### **Disclaimer**
-I am not responsible for bricked devices, hardware issues, or any other complications. Modifications are performed at your own risk.
+## 🤝 Support & Development
+This project is an ongoing effort to provide the best experience for the Pixel community. 
 
-**Developer**: [Drizzy_07](https://github.com/Drizzy07x)  
-**Device**: Google Pixel 9 Pro XL (*komodo*)  
-**Version**: 1.5 Stable
-
----
-
-### **☕ Support the Project**
-If the **Supercharger** has improved your experience, feel free to support the ongoing development!
+**Maintained by**: [Drizzy_07](https://github.com/Drizzy07x)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://www.buymeacoffee.com/Drizzy_07)
