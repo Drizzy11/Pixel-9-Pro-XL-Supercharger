@@ -1,7 +1,7 @@
 id=p9pxl_supercharger
-name=Pixel 9 Pro Series Supercharger
-version=v1.5.1
-versionCode=151
+name=Pixel 9 Pro Series Supercharger [BETA]
+version=v1.6-beta.1
+versionCode=160
 author=Drizzy_07
-description=Status: [🚀] v1.5.1 ACTIVE | 🧠 Performance Fix | 🌡️ Actual Temp: --°C | ✅ Stable
-updateJson=https://raw.githubusercontent.com/Drizzy07x/Pixel-9-Pro-XL-Supercharger/main/update.json
+# Always point to the beta file
+updateJson=https://raw.githubusercontent.com/Drizzy07x/Pixel-9-Pro-XL-Supercharger/main/update-beta.json
