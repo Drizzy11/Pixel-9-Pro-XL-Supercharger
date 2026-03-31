@@ -1,24 +1,36 @@
-# Pixel 9 Pro XL Supercharger - Change Log
+# Changelog
 
-All notable changes to the **Supercharger** project will be documented in this file.
+All notable changes to the **Pixel 9 Pro XL Supercharger** project will be documented in this file.
 
-## [v1.5 Stable] - 2026-03-31
-### Added
-- **Advanced Diagnostic Engine**: New `debug.log` system located at `/data/adb/modules/p9pxl_supercharger/`.
-- **Hardware Monitoring**: Added SoC temperature logging and RAM status reporting (`free -m`) during boot.
-- **Dynamic Magisk Dashboard**: The module description now updates in real-time to show if optimizations are active ✅ or bypassed ❌.
-- **Automated Maintenance**: Integrated SQLite database VACUUM/REINDEX and background ART compiler (DexOpt) triggers for peak system health.
+## [1.5 Stable] - 2026-03-31
 
-### Improved
-- **16GB LPDDR5X Tuning**: Refined Dalvik VM properties (`heapgrowthlimit`, `heapsize`) for better multitasking stability.
-- **UFS 4.0 I/O Path**: Optimized I/O schedulers and read-ahead buffers for near-instant app loading.
-- **Thermal Efficiency**: Added power-save bias policies for Tensor G4 cores to maintain long-term hardware health.
-- **UI Fluidity**: Forced SkiaVK renderer and increased touch responsiveness for a consistent 120Hz experience.
+### **Added**
+* **Evolutionary Dashboard**: Implemented a dynamic Magisk UI status system that updates in real-time during the boot process (`[⏳] Booting` -> `[🧠] Hardware Tuning` -> `[🌐] Connectivity` -> `[🚀] Active`).
+* **Live Hardware Monitoring**: Added a 60-second background refresh loop to display the **Actual Temp** of the Tensor G4 SoC directly within the Magisk description.
+* **Advanced Diagnostics**: Integrated a hardware-aware `debug.log` engine that captures SoC thermal metrics and initial 16GB LPDDR5X RAM snapshots upon deployment.
 
-### Fixed
-- **Boot Stability**: Increased stabilization delay to 90 seconds to ensure full compatibility with Evolution X and other A16 builds.
-- **Cleanup**: Disabled redundant system telemetry (`statsd`) and live logcat to reduce idle battery drain.
+### **Changed**
+* **RAM Efficiency (16GB Focus)**: Optimized Dalvik VM parameters (1GB Heap, 512MB Growth Limit, 32M Start) and reduced VFS Cache Pressure to 50 to maximize app retention and LPDDR5X memory throughput.
+* **Network "Race to Sleep"**: Deployed aggressive TCP Fast Open (3) and Low Latency (1) parameters to minimize 5G and Wi-Fi 7 modem active states, significantly preserving battery life.
+* **Thermal Management**: Applied a triple-cluster `powersave_bias` and capped ART compilation (dex2oat) to 4 threads to ensure the Tensor G4 remains cool during automated maintenance.
+* **Maintenance Logic**: Stabilized background SQLite and ART optimization jobs with a 180s post-boot delay to prevent system-wide I/O collisions during the initial user session.
 
+### **Fixed**
+* **Filesystem Stability**: Resolved the persistent "Read-Only" storage errors and screenshot/deletion failures present since v1.4.
+* **I/O Buffering**: Capped `nr_requests` at 128 for UFS 4.0 queues to match Android 16 kernel safety limits and prevent controller hangs.
+* **MediaProvider Collision**: Implemented a strict path-exclusion rule for `com.android.providers.media` during SQLite maintenance to ensure 100% availability for media operations and gallery tasks.
+* **Touch Logic**: Switched touch responsiveness tuning to a `resetprop` method to eliminate 'Error Code 1' diagnostics on Evolution X builds.
+
+### **Performance**
+* **Graphics Engine**: Forced SkiaVK rendering and HW UI acceleration while disabling system-wide dithering for peak frame stability and reduced GPU overhead.
+* **UFS 4.0 Tuning**: Switched I/O scheduler to `none` and optimized read-ahead values to 512KB for instantaneous data access on high-speed storage.
+* **System Silence**: Increased Wi-Fi scan intervals to 300s and disabled `statsd` and live logcat to reduce background CPU cycles and wakeups.
+
+---
+
+**Lead Developer**: Drizzy_07
+**Target Architecture**: Google Pixel 9 Pro XL (komodo)
+**OS Compatibility**: Android 16 / Tested in (Evolution X)
 ---
 
 ## [v1.4 Stable] - 2026-03-30
