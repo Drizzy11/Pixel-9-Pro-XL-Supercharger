@@ -2,6 +2,15 @@
 
 All notable changes to the **Pixel 9 Pro XL Supercharger** project will be documented in this file.
 
+# Changelog
+
+## [1.5.1 Stable] - 2026-03-31
+### **Fixed**
+* **Networking**: Verified and re-applied TCP Fast Open (3) and Low Latency (1) for optimized 5G/Wi-Fi performance.
+* **Performance Hangs**: Restored CPU scaling on clústeres P4/P7 to eliminate freezes during heavy gaming or multitasking.
+* **UFS 4.0 Throughput**: Increased `nr_requests` and `read_ahead` for better data flow.
+
+* 
 ## [1.5 Stable] - 2026-03-31
 
 ### **Added**
