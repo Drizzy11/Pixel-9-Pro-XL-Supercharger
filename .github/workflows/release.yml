@@ -1,0 +1,41 @@
+name: Supercharger Auto-Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Se activa cuando creas una tag que empiece por v (ej: v1.5.1 o v1.6-beta)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Get Version info
+        id: get_version
+        run: |
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          # Si la tag contiene "-beta", marcar como pre-release
+          if [[ "${GITHUB_REF}" == *"-beta"* ]]; then
+            echo "PRERELEASE=true" >> $GITHUB_OUTPUT
+          else
+            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Magisk Module ZIP
+        run: |
+          # Creamos el ZIP excluyendo archivos innecesarios de GitHub
+          zip -r "Supercharger-${{ steps.get_version.outputs.VERSION }}.zip" . -x ".git/*" ".github/*" "README.md" "LICENSE" "changelog.md" ".gitignore"
+
+      - name: Generate Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Supercharger-${{ steps.get_version.outputs.VERSION }}.zip
+          name: Pixel 9 Pro Series Supercharger ${{ steps.get_version.outputs.VERSION }}
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          prerelease: ${{ steps.get_version.outputs.PRERELEASE }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
