@@ -17,12 +17,12 @@ fi
 ui_print " [✅] TARGET HARDWARE VERIFIED: $MODEL"
 
 ui_print " "
-ui_print "  ____  _              _    __    "
-ui_print " |  _ \(_)_  _____| |  / /_   "
-ui_print " | |_) | \ \/ / _ \ | |  _ \  "
-ui_print " |  __/| |>  <  __/ | | (_) | "
-ui_print " |_|   |_/_/\_\___|_|  \___/  "
-ui_print "  S U P E R C H A R G E R  v1.5.1"
+ui_print "  ____  _           _    ___  "
+ui_print " |  _ \(_)_  _____| |  / _ \ "
+ui_print " | |_) | \ \/ / _ \ | | (_) |"
+ui_print " |  __/| |>  <  __/ |  \__, |"
+ui_print " |_|   |_/_/\_\___|_|    /_/ "
+ui_print "  S U P E R C H A R G E R  v1.6-BETA"
 ui_print " "
 
 ui_print "========================================================="
