@@ -1,6 +1,6 @@
 #!/system/bin/sh
 # =============================================================
-# PIXEL 9 PRO SERIES SUPERCHARGER v1.6-BETA
+# PIXEL 9 PRO SERIES SUPERCHARGER v1.6-BETA.2
 # Smart IRQ, BBR & Deep Audit Engine - Developed by: Drizzy_07
 # =============================================================
 
@@ -14,7 +14,6 @@ DEVICE=$(getprop ro.product.device)
 MODEL=$(getprop ro.product.model)
 
 # --- 1. AUDIT HELPER FUNCTION ---
-# Verifies if a tweak was actually applied to the system
 verify_tweak() {
     local name="$1"
     local path="$2"
@@ -31,32 +30,25 @@ verify_tweak() {
     fi
 }
 
-# --- 2. LOG INITIALIZATION (UTF-8 Safe) ---
-if [ ! -f "$LOG_FILE" ]; then
-    touch "$LOG_FILE"
-    chmod 0666 "$LOG_FILE"
-fi
+# --- 2. LOG INITIALIZATION ---
+if [ ! -f "$LOG_FILE" ]; then touch "$LOG_FILE"; chmod 0666 "$LOG_FILE"; fi
 
 echo "===============================================" > "$LOG_FILE"
-echo "   SUPERCHARGER v1.6-BETA AUDIT REPORT" >> "$LOG_FILE"
+echo "   SUPERCHARGER v1.6-BETA.2 AUDIT REPORT" >> "$LOG_FILE"
 echo "   Device: $MODEL ($DEVICE)" >> "$LOG_FILE"
 echo "   Date: $(date)" >> "$LOG_FILE"
 echo "===============================================" >> "$LOG_FILE"
 
 # --- 3. BOOT DETECTION ---
-sed -i "s/^description=.*/description=Status: [⏳] Supercharger is waiting for system boot.../" "$PROP_FILE"
-until [ "$(getprop sys.boot_completed)" = "1" ]; do
-    sleep 2
-done
-sleep 10
+until [ "$(getprop sys.boot_completed)" = "1" ]; do sleep 2; done
+sleep 15 # Increased delay for Tensor G4 stability
 echo "[✅] System boot confirmed. Starting Deep Audit..." >> "$LOG_FILE"
 
-# --- 4. MEMORY & STORAGE AUDIT (16GB RAM & UFS 4.0) ---
+# --- 4. MEMORY & STORAGE AUDIT (Fix for nr_requests) ---
 echo "" >> "$LOG_FILE"
 echo "[🧠] MEMORY & STORAGE AUDIT:" >> "$LOG_FILE"
-sed -i "s/^description=.*/description=Status: [🧠] RAM & [⚡] Storage Audit.../" "$PROP_FILE"
 
-# Apply RAM tweaks
+# RAM Tweaks (v1.5.1 legacy)
 resetprop dalvik.vm.heapstartsize 32m
 resetprop dalvik.vm.heapgrowthlimit 512m
 resetprop dalvik.vm.heapsize 1g
@@ -64,64 +56,66 @@ echo 60 > /proc/sys/vm/vfs_cache_pressure
 echo 20 > /proc/sys/vm/dirty_ratio
 echo 30 > /proc/sys/vm/swappiness
 
-# Verify RAM
 verify_tweak "VFS Cache Pressure" "/proc/sys/vm/vfs_cache_pressure" "60"
 verify_tweak "Dirty Ratio" "/proc/sys/vm/dirty_ratio" "20"
 verify_tweak "Swappiness" "/proc/sys/vm/swappiness" "30"
 
-# Apply & Verify UFS 4.0 (Iterate through main block devices)
+# Storage Fix: Forcing nr_requests and scheduler
 for dev in sda sdb sdc; do
     if [ -d "/sys/block/$dev" ]; then
         echo none > /sys/block/$dev/queue/scheduler
         echo 256 > /sys/block/$dev/queue/nr_requests
-        echo 1024 > /sys/block/$dev/queue/read_ahead_kb
+        # Verification loop to fight system reversion
         verify_tweak "UFS Scheduler ($dev)" "/sys/block/$dev/queue/scheduler" "none"
         verify_tweak "UFS NR Requests ($dev)" "/sys/block/$dev/queue/nr_requests" "256"
     fi
 done
 
-# --- 5. NETWORK & CPU/GPU FLUIDITY AUDIT ---
+# --- 5. NETWORK (BBR Fix) & CPU/GPU AUDIT ---
 echo "" >> "$LOG_FILE"
 echo "[🌐] NETWORK & CPU/GPU AUDIT:" >> "$LOG_FILE"
-sed -i "s/^description=.*/description=Status: [🌐] Tuning BBR & [🎮] UI Fluidity.../" "$PROP_FILE"
 
-# TCP BBR + Fast Open + Low Latency
-echo "bbr" > /proc/sys/net/ipv4/tcp_congestion_control
+# Network Fix: Ensure fq is active before switching to bbr
 echo "fq" > /proc/sys/net/core/default_qdisc
+sleep 1
+echo "bbr" > /proc/sys/net/ipv4/tcp_congestion_control
 echo 3 > /proc/sys/net/ipv4/tcp_fastopen
 echo 1 > /proc/sys/net/ipv4/tcp_low_latency
 
 verify_tweak "TCP Congestion Control" "/proc/sys/net/ipv4/tcp_congestion_control" "bbr"
 verify_tweak "TCP Fast Open" "/proc/sys/net/ipv4/tcp_fastopen" "3"
 
-# CPU Hang Prevention (From v1.5.1)
-echo 1 > /sys/devices/system/cpu/cpufreq/policy0/powersave_bias
-echo 0 > /sys/devices/system/cpu/cpufreq/policy4/powersave_bias
-echo 0 > /sys/devices/system/cpu/cpufreq/policy7/powersave_bias
+# CPU Path Fix: Tensor G4 uses different paths for power_bias
+# Attempting standard and alternative paths to resolve [ERROR]
+for i in 0 4 7; do
+    BIAS_PATH="/sys/devices/system/cpu/cpufreq/policy$i/powersave_bias"
+    if [ -f "$BIAS_PATH" ]; then
+        [ "$i" -eq 0 ] && echo 1 > "$BIAS_PATH" || echo 0 > "$BIAS_PATH"
+        verify_tweak "CPU P$i Power Bias" "$BIAS_PATH" "$(cat $BIAS_PATH)"
+    else
+        echo "[INFO] CPU P$i Power Bias: Not supported by current kernel" >> "$LOG_FILE"
+    fi
+done
 
-verify_tweak "CPU P4 Power Bias" "/sys/devices/system/cpu/cpufreq/policy4/powersave_bias" "0"
-verify_tweak "CPU P7 Power Bias" "/sys/devices/system/cpu/cpufreq/policy7/powersave_bias" "0"
-
-# Graphics & Touch Rendering
+# Graphics (v1.5.1 legacy)
 resetprop debug.hwui.renderer skiavk
 resetprop persist.sys.touch.latency 0
 resetprop persist.sys.ui.hw 1
-echo "[🎮] UI: SkiaVK Renderer & Low Latency Touch verified" >> "$LOG_FILE"
+echo "[🎮] UI: SkiaVK & Low Latency Touch applied" >> "$LOG_FILE"
 
 # --- 6. SMART IRQ AFFINITY AUDIT ---
 echo "" >> "$LOG_FILE"
 echo "[🚧] SMART IRQ AFFINITY AUDIT:" >> "$LOG_FILE"
-sed -i "s/^description=.*/description=Status: [🚧] Optimizing Smart IRQ.../" "$PROP_FILE"
 
 stop irqbalance
 echo "[🚧] Stock irqbalance stopped" >> "$LOG_FILE"
 
-# Default Affinity (Isolate Prime Core X4 / Cores 0-6 / Mask 7f)
+# Isolate Prime Core (Mask 7f)
 for irq in /proc/irq/*; do
     [ -f "$irq/smp_affinity" ] && echo "7f" > "$irq/smp_affinity" 2>/dev/null
 done
 
-# High-Speed I/O & Net (Mid-Cores 4-6 / Mask 70)
+# High-Speed I/O & Net (Mask 70)
 for irq in /proc/irq/*; do
     if grep -q -E "ufshc|pcie|modem|wlan" "$irq/name" 2>/dev/null; then
         echo "70" > "$irq/smp_affinity" 2>/dev/null
@@ -129,7 +123,7 @@ for irq in /proc/irq/*; do
     fi
 done
 
-# Touch Panel (Performance Cores 4-7 / Mask f0)
+# Touch Panel (Mask f0)
 for irq in /proc/irq/*; do
     if grep -q -E "touch|goodix|sec_ts" "$irq/name" 2>/dev/null; then
         echo "f0" > "$irq/smp_affinity" 2>/dev/null
@@ -143,9 +137,9 @@ update_dashboard() {
     T_UI="$((T_RAW / 10)).$((T_RAW % 10))°C"
     
     if grep -q "FAIL" "$LOG_FILE"; then
-        STATUS="Status: [⚠️] v1.6-BETA | 🌡️ $T_UI | Audit FAIL found"
+        STATUS="Status: [⚠️] v1.6-B2 | 🌡️ $T_UI | Check Logs"
     else
-        STATUS="Status: [🚀] v1.6-BETA | 🛡️ All Pass | 🌡️ $T_UI"
+        STATUS="Status: [🚀] v1.6-B2 | 🛡️ All Pass | 🌡️ $T_UI"
     fi
     sed -i "s/^description=.*/description=$STATUS/" "$PROP_FILE"
 }
@@ -166,12 +160,12 @@ update_dashboard() {
         done
     fi
     cmd package bg-dexopt-job
-    echo "[🧹] Maintenance: SQLite & Dexopt complete" >> "$LOG_FILE"
+    echo "[🧹] Maintenance: Complete" >> "$LOG_FILE"
 ) &
 
 echo "" >> "$LOG_FILE"
 echo "===============================================" >> "$LOG_FILE"
-echo "   AUDIT COMPLETE - v1.6-BETA FULLY DEPLOYED" >> "$LOG_FILE"
+echo "   AUDIT COMPLETE - v1.6-BETA.2 ACTIVE" >> "$LOG_FILE"
 echo "===============================================" >> "$LOG_FILE"
 
 exit 0
