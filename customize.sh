@@ -6,7 +6,7 @@ MODEL=$(getprop ro.product.model)
 
 ui_print "*********************************************************"
 ui_print "  PIXEL 9 PRO SERIES SUPERCHARGER 🚀"
-ui_print "  Build: v1.6 BETA 5"
+ui_print "  Build: v2.0 BETA 1"
 ui_print "*********************************************************"
 
 if [ "$DEVICE" != "komodo" ] && [ "$DEVICE" != "caiman" ] && [ "$DEVICE" != "comet" ]; then
