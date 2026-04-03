@@ -1,60 +1,79 @@
-# Pixel 9 Pro XL Supercharger (v1.5.1 Final Stable) 🚀
+# 🚀 Pixel 9 Pro Series Supercharger
 
-The most advanced performance and efficiency engine specifically designed for the **Google Pixel 9 Pro XL (komodo)** running **Android 16 (Evolution X)**.
+![Version](https://img.shields.io/badge/Version-v1.6_Stable-brightgreen.svg)
+![Architecture](https://img.shields.io/badge/Architecture-Tensor_G4_(Zumapro)-blue.svg)
+![Magisk](https://img.shields.io/badge/Magisk-26.0%2B-orange.svg)
 
-Developed by: **Drizzy_07**
+An elite, device-specific Magisk/KernelSU module engineered exclusively for the **Google Pixel 9 Pro Series**. This module replaces generic brute-force scripts with an **Intelligent Hardware Architecture**, exploiting the specific physical limits and capabilities of the Tensor G4 (Zumapro) kernel to deliver zero-lag UI fluidity, lightning-fast I/O, and lower ping without draining your battery.
 
----
-
-## 🧠 Core Philosophy
-This module transitions the Pixel 9 Pro XL from standard software constraints to a precision-tuned hardware-aware state. It focuses on maximizing the **16GB LPDDR5X RAM** and **UFS 4.0** storage while preserving the health of the **Tensor G4 SoC**.
-
----
-
-## ✨ Key Features
-
-### 📊 Evolutionary Visual Dashboard
-* **Dynamic Status Tracking**: Real-time Magisk UI updates during the boot process: `[⏳] Initializing` -> `[🧠] Hardware` -> `[🌐] Connectivity` -> `[🚀] Active`.
-* **Live Hardware Monitoring**: A 60-second background refresh loop displays the **Actual Temp** of the SoC directly in the Magisk Manager description.
-
-### 🧠 16GB RAM & Multitasking (LPDDR5X)
-* **Heap Optimization**: Locked Dalvik parameters (1GB Heap / 512MB Growth Limit) for extreme app retention.
-* **VFS Pressure Tuning**: Reduced cache pressure to **50** to leverage high RAM capacity and minimize physical disk I/O.
-
-### ⚡ UFS 4.0 Stability & Speed
-* **Filesystem Safety Patch**: Resolved "Read-Only" storage errors and screenshot failures by capping `nr_requests` at **128**.
-* **Intelligent Maintenance**: Background SQLite and ART optimization with a 180s delay and MediaProvider exclusion to ensure zero collisions with system tasks.
-* **None Scheduler**: Forced `none` I/O scheduler and optimized 512KB read-ahead for instantaneous data access.
-
-### 🌡️ Tensor G4 Thermal Control
-* **Power Management**: Triple-cluster `powersave_bias` integration for maximum battery efficiency during idle states.
-* **Capped Compilation**: Restricted background ART jobs to **4 threads** to prevent heat spikes and preserve battery longevity.
-
-### 🌐 Connectivity & UI Fluidity
-* **"Race to Sleep" Networking**: Aggressive TCP Fast Open (3) and Low Latency (1) tuning for optimized 5G and Wi-Fi 7 performance.
-* **Graphics Engine**: Forced **SkiaVK** rendering and HW UI acceleration with dithering disabled for peak frame stability.
-* **Touch Response**: Low-latency touch tuning via `resetprop` for ultra-responsive navigation.
+Developed by **Drizzy_07**.
 
 ---
 
-## 🛠️ Installation
-1. Download the `Supercharger-v1.5-Final.zip`.
-2. Flash via **Magisk Manager**.
-3. Reboot and wait **50 seconds** for the dashboard to initialize.
-4. Check `/data/adb/modules/p9pxl_supercharger/debug.log` for a full diagnostic report.
+## ⚡ Core Engines (v1.6 Features)
+
+### 🧠 Smart Storage Engine
+Instead of fighting the stock kernel's UFS 4.0 physical limits, we exploit them. 
+* **Massive Read-Ahead:** Boosts `read_ahead_kb` to **1024**, forcing the hardware to load giant data blocks at once.
+* **Result:** Blazing fast app loading times and game rendering while maintaining Google's native battery efficiency.
+
+### 🌐 Smart Network Engine
+Optimized for 5G and Wi-Fi mobile environments where packet loss happens.
+* **Cubic Optimization:** Fine-tuned the default `cubic` algorithm alongside the `fq` (Fair Queuing) discipline.
+* **Socket Reuse:** Enables `tcp_tw_reuse` to instantly recycle dead connections, drastically dropping latency, lag spikes, and ping in competitive gaming.
+
+### 🚧 Smart IRQ Balancing
+The stock IRQ daemon wakes up the Prime core too often. We stop it and manually assign hardware nodes:
+* **Efficiency Cores (0-6):** Handle background noise.
+* **Mid Cores (4-6):** Pinned specifically for Network, Modem, and I/O processes.
+* **Performance Cores (4-7):** Strictly reserved for the Touchpanel (`goodix`/`sec_ts`) to ensure absolute zero-lag scrolling and typing.
+
+### 🎮 Legacy System & Memory Profiles
+* **16GB RAM Dalvik Profiling:** Maximizes the Pixel 9 Pro's LPDDR5X RAM by expanding the VM heap size to `1g`, keeping more apps alive in the background.
+* **SkiaVK Renderer:** Forces the UI to render using Vulkan, taking the load off the CPU and reducing thermal throttling.
+
+### 🛡️ Deep Audit Engine
+Ever wonder if a Magisk module is *actually* working? 
+The Supercharger includes a military-grade Audit Engine. Three minutes after every boot, it writes a comprehensive `[PASS/FAIL]` report directly to the module's folder.
 
 ---
 
-## 📝 Compatibility
-* **Device**: Google Pixel 9 Pro XL (komodo).
-* **OS**: Android 16 (Tested on Evolution X).
-* **Kernel**: Works with Stock or custom kernels.
+## 📱 Compatibility
+Strictly designed for devices running the **Tensor G4** processor:
+* Google Pixel 9
+* Google Pixel 9 Pro
+* Google Pixel 9 Pro XL
+* Google Pixel 9 Pro Fold
+* *Support: Android 14 / Android 15 (Stock & Custom ROMs)*
 
 ---
 
-## 🤝 Support & Development
-This project is an ongoing effort to provide the best experience for the Pixel community. 
+## ⚙️ Installation Instructions
+1. Download the latest `Supercharger-v1.6.zip` from the [Releases](../../releases) section.
+2. Open **Magisk** or **KernelSU**.
+3. Go to the **Modules** tab.
+4. Tap **Install from storage** and select the downloaded ZIP.
+5. Reboot your device.
+6. **Important:** Wait exactly 3 to 5 minutes after booting for the Smart Engine to complete its deployment and background audits.
 
-**Maintained by**: [Drizzy_07](https://github.com/Drizzy07x)
+---
+
+## 📊 How to Check Your Audit Log
+Want to see the magic happening?
+1. Open any Root File Explorer (like MiXplorer or MT Manager).
+2. Navigate to: `/data/adb/modules/Pixel9_Supercharger/` (Folder name may vary slightly).
+3. Open the `debug.log` file.
+4. You will see a beautiful wall of `[PASS]` statuses detailing every tweak applied to your specific hardware nodes!
+
+---
+
+## ⚠️ Disclaimer
+* Your warranty is void.
+* I am not responsible for bricked devices, dead SD cards, or thermonuclear war.
+* Please do NOT use this alongside other "Performance", "Battery", or "Network" modules (like FDE.AI, Magneto, L-Speed). They will conflict with the Tensor G4-specific logic used here.
+
+---
+**Credits:** Thanks to the Android development community and XDA for the endless knowledge base.
+
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://www.buymeacoffee.com/Drizzy_07)
