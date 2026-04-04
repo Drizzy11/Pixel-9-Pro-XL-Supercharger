@@ -1,0 +1,7 @@
+# Pixel 9 Pro XL 16GB RAM Profile - Early Boot Injection
+dalvik.vm.heapstartsize=32m
+dalvik.vm.heapgrowthlimit=512m
+dalvik.vm.heapsize=1024m
+
+# Zero Latency Touch
+persist.sys.touch.latency=0

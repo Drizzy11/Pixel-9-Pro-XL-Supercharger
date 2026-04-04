@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # =============================================================
-# PIXEL 9 PRO SERIES SUPERCHARGER v2.1-BETA.2 (Build 210)
-# Maximum Efficiency & Extreme Multitasking - Developed by: Drizzy_07
+# PIXEL 9 PRO SERIES SUPERCHARGER v2.1-STABLE
+# Maximum Efficiency Architecture - Developed by: Drizzy_07
 # =============================================================
 
 MODDIR=${0%/*}
@@ -35,7 +35,7 @@ verify_prop() {
 # --- 2. LOG INITIALIZATION ---
 if [ ! -f "$LOG_FILE" ]; then touch "$LOG_FILE"; chmod 0666 "$LOG_FILE"; fi
 echo "===============================================" > "$LOG_FILE"
-echo "   SUPERCHARGER v2.1-BETA.1 DEEP AUDIT" >> "$LOG_FILE"
+echo "   SUPERCHARGER v2.1-BETA.3 DEEP AUDIT" >> "$LOG_FILE"
 echo "   Device: Pixel 9 Pro XL (Zumapro/Tensor G4)" >> "$LOG_FILE"
 echo "   Date: $(date)" >> "$LOG_FILE"
 echo "===============================================" >> "$LOG_FILE"
@@ -43,37 +43,18 @@ echo "===============================================" >> "$LOG_FILE"
 # --- 3. BOOT DETECTION ---
 until [ "$(getprop sys.boot_completed)" = "1" ]; do sleep 2; done
 sleep 30 
-echo "[✅] System ready. Deploying v2.1 Engines..." >> "$LOG_FILE"
+echo "[✅] System ready. Deploying v2.1-STABLE Engines..." >> "$LOG_FILE"
 
-# --- 4. LEGACY SYSTEM & 16GB RAM PROFILE ---
+# --- 4. EARLY BOOT AUDIT (Verifying system.prop) ---
 echo "" >> "$LOG_FILE"
-echo "[🧠] SYSTEM & RAM AUDIT:" >> "$LOG_FILE"
-
-resetprop dalvik.vm.heapstartsize 32m
-resetprop dalvik.vm.heapgrowthlimit 512m
-resetprop dalvik.vm.heapsize 1g
-resetprop persist.sys.touch.latency 0
+echo "[🧠] SYSTEM & RAM AUDIT (Read-Only):" >> "$LOG_FILE"
 
 verify_prop "Dalvik Heap Start" "dalvik.vm.heapstartsize" "32m"
 verify_prop "Dalvik Heap Growth" "dalvik.vm.heapgrowthlimit" "512m"
-verify_prop "Dalvik Heap Size" "dalvik.vm.heapsize" "1g"
+verify_prop "Dalvik Heap Size" "dalvik.vm.heapsize" "1024m"
 verify_prop "Touch Latency" "persist.sys.touch.latency" "0"
 
-# --- 5. EXTREME MULTITASKING ENGINE (LMKD) ---
-echo "" >> "$LOG_FILE"
-echo "[🔄] LMKD MULTITASKING AUDIT:" >> "$LOG_FILE"
-
-resetprop ro.lmk.psi_partial_stall_ms 250
-resetprop ro.lmk.psi_complete_stall_ms 1500
-resetprop ro.lmk.kill_heaviest_task false
-resetprop ro.lmk.swap_free_low_percentage 10
-
-verify_prop "LMK PSI Partial" "ro.lmk.psi_partial_stall_ms" "250"
-verify_prop "LMK PSI Complete" "ro.lmk.psi_complete_stall_ms" "1500"
-verify_prop "LMK Kill Heaviest" "ro.lmk.kill_heaviest_task" "false"
-verify_prop "LMK Swap Low %" "ro.lmk.swap_free_low_percentage" "10"
-
-# --- 6. SMART STORAGE ENGINE (v2.0) ---
+# --- 5. SMART STORAGE ENGINE (v2.1) ---
 echo "" >> "$LOG_FILE"
 echo "[⚡] VIRTUAL MEMORY & STORAGE AUDIT:" >> "$LOG_FILE"
 
@@ -97,7 +78,7 @@ for dev in sda sdb sdc; do
     fi
 done
 
-# --- 7. SMART NETWORK ENGINE (v2.0) ---
+# --- 6. SMART NETWORK ENGINE (Stable CUBIC) ---
 echo "" >> "$LOG_FILE"
 echo "[🌐] NETWORK AUDIT:" >> "$LOG_FILE"
 
@@ -152,9 +133,9 @@ update_dashboard() {
     T_RAW=$(cat /sys/class/power_supply/battery/temp)
     T_UI="$((T_RAW / 10)).$((T_RAW % 10))°C"
     if grep -q "FAIL" "$LOG_FILE"; then
-        STATUS="Status: [⚠️] v2.1-B2 | 🌡️ $T_UI | Audit Issue"
+        STATUS="Status: [⚠️] v2.1-STABLE | 🌡️ $T_UI | Audit Issue"
     else
-        STATUS="Status: [🚀] v2.1-B2 | 🛡️ All Pass | 🌡️ $T_UI"
+        STATUS="Status: [🚀] v2.1-STABLE | 🛡️ All Pass | 🌡️ $T_UI"
     fi
     sed -i "s/^description=.*/description=$STATUS/" "$PROP_FILE"
 }
