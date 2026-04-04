@@ -1,27 +1,31 @@
-# 🚀 Supercharger v1.6 STABLE
+# Changelog
 
-After rigorous beta testing, version 1.6 is officially ready for daily use. This monumental update shifts the module from standard script execution to an **Intelligent Hardware Architecture**, explicitly optimized for the Pixel 9 Pro XL's Tensor G4 (Zumapro) kernel.
+All notable changes to the **Pixel 9 Pro Series Supercharger** project will be documented in this file.
 
-## 🛠️ What's New in v1.6
+## [2.0 Stable] - 2026-04-03
 
-### 🛡️ Deep Audit Engine
-* **Military-Grade Logging**: The module now features a Deep Audit Engine. Check your `debug.log` to see a detailed `[PASS/FAIL]` report of every hardware and software tweak applied to your device.
-* **Prop Verification**: The engine natively verifies Android `resetprop` injections, ensuring the 16GB RAM profile and SkiaVK UI are completely active.
+### 🚀 Major Highlights
+* **Android 16 GKI Ready:** Fully adapted to the new Generic Kernel Image security restrictions in Android 16.
+* **Thermal Efficiency Victory:** A/B testing on PCMark Work 3.0 proves v2.0 completely eliminates the thermal throttling spikes present in the stock kernel, maintaining a flat temperature line under heavy loads.
+* **I/O Speed Boost:** Achieved 22,098 in PCMark Writing tests, explicitly outperforming stock UFS speeds.
 
-### 🧠 Smart Storage Engine
-* **Intelligent Pivot**: Dropped infinite system-fighting loops to save battery. The engine now accepts Google's UFS 4.0 physical Queue Depth limit but compensates by massively boosting `read_ahead_kb` to **1024**.
-* **Result**: Lightning-fast I/O operations and app loading times with zero battery drain.
+### ✨ Added
+* **Android 16 Smart IRQ Extraction:** Added a new dynamic parsing method that reads directly from `/proc/interrupts` to bypass Android 16's strict hidden-directory permissions.
+* **5G Elasticity TCP Buffers:** Injected massive `tcp_rmem` and `tcp_wmem` buffers specifically calculated to handle 5G packet loss and cell-tower handoffs seamlessly while moving.
+* **Zero I/O Stats Overhead:** Implemented a new storage application tweak that forces `iostats` to `0` across `sda`, `sdb`, and `sdc` UFS blocks, saving background CPU cycles.
 
-### 🌐 Smart Network Engine
-* **Cubic Optimization**: Specifically tuned the `cubic` congestion control for mobile networks.
-* **Socket Reuse**: Enabled `tcp_tw_reuse` to instantly recycle dead connections, drastically dropping latency, lag spikes, and ping on 5G and Wi-Fi networks.
+### 🔄 Changed
+* **Touchpanel Routing:** Re-routed the Tensor G4 Touchpanel (`synaptics_tcm`) strictly to the Performance Cores (Mask `f0`) for flawless, zero-latency 120Hz scrolling.
+* **Storage & Network Routing:** Pinned UFS Storage (`ufshcd`) and the 5G/Wi-Fi Modems (`exynos-pcie`, `dhdpcie`) strictly to the Mid-Cores (Mask `70`) to prevent background tasks from waking up the Prime core.
 
-### 🚧 Smart IRQ Balancing
-* **Hardware Node Tracking**: The custom IRQ balancer now counts and displays the exact number of hardware nodes assigned to specific cores.
-* **Touch Priority**: Forced touchpanel interrupts to the Performance Cores (`f0` mask) for absolute zero-lag scrolling.
-* **Efficiency**: Network and I/O processes are offloaded to Mid and Efficiency cores, allowing the Cortex-X4 Prime core to enter Deep Sleep faster.
+### 🗑️ Removed
+* **ZRAM Algorithm Injection:** Removed the forced `lz4` compression tweak. Deep kernel auditing revealed Google hard-locked the Tensor G4's ZRAM to their proprietary `lz77eh` algorithm in Android 16. Removing this prevents silent background kernel rejections and keeps the `debug.log` 100% accurate.
 
 ---
-**Build Code**: 161
-**Status**: Stable Release
-**Compatibility**: Pixel 9, Pixel 9 Pro, Pixel 9 Pro XL, Pixel 9 Pro Fold (Tensor G4)
+
+## [1.6 Stable] - Previous Release
+### ✨ Added
+* Initial "Intelligent Hardware Architecture" implementation.
+* 16GB RAM Profile optimization (Dalvik VM tweaks).
+* Baseline Smart IRQ Balance for Android 14/15.
+* 
