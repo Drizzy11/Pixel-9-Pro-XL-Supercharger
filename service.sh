@@ -1,6 +1,6 @@
 #!/system/bin/sh
 # =============================================================
-# PIXEL 9 PRO SERIES SUPERCHARGER v2.0-BETA.3
+# PIXEL 9 PRO SERIES SUPERCHARGER v2.0-STABLE
 # Maximum Efficiency Architecture - Developed by: Drizzy_07
 # =============================================================
 
@@ -35,7 +35,7 @@ verify_prop() {
 # --- 2. LOG INITIALIZATION ---
 if [ ! -f "$LOG_FILE" ]; then touch "$LOG_FILE"; chmod 0666 "$LOG_FILE"; fi
 echo "===============================================" > "$LOG_FILE"
-echo "   SUPERCHARGER v2.0-BETA.3 DEEP AUDIT" >> "$LOG_FILE"
+echo "   SUPERCHARGER v2.0-STABLE DEEP AUDIT" >> "$LOG_FILE"
 echo "   Device: Pixel 9 Pro XL (Zumapro/Tensor G4)" >> "$LOG_FILE"
 echo "   Date: $(date)" >> "$LOG_FILE"
 echo "===============================================" >> "$LOG_FILE"
@@ -148,9 +148,9 @@ update_dashboard() {
     T_RAW=$(cat /sys/class/power_supply/battery/temp)
     T_UI="$((T_RAW / 10)).$((T_RAW % 10))°C"
     if grep -q "FAIL" "$LOG_FILE"; then
-        STATUS="Status: [⚠️] v2.0-B3 | 🌡️ $T_UI | Audit Issue"
+        STATUS="Status: [⚠️] v2.0-STABLE | 🌡️ $T_UI | Audit Issue"
     else
-        STATUS="Status: [🚀] v2.0-B3 | 🛡️ All Pass | 🌡️ $T_UI"
+        STATUS="Status: [🚀] v2.0-STABLE | 🛡️ All Pass | 🌡️ACTUAL TEMP $T_UI"
     fi
     sed -i "s/^description=.*/description=$STATUS/" "$PROP_FILE"
 }
