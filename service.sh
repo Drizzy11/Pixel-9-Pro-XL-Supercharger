@@ -128,7 +128,7 @@ get_dashboard_status() {
     if grep -q "FAIL" "$LOG_FILE" 2>/dev/null; then
         echo "⚠️ Status: v2.3-STABLE | ${temp_ui} | Audit Issue Detected"
     else
-        echo "🚀 Status: v2.3-STABLE | ${temp_ui} | Profile Active"
+        echo "🚀 Status: v2.3-STABLE | ${temp_ui} | Profile Active ✅"
     fi
 }
 
