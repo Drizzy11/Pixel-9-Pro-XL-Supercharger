@@ -6,8 +6,8 @@ LOG_FILE="$MODDIR/debug.log"
 DEVICE="$(getprop ro.product.device)"
 MODEL="$(getprop ro.product.model)"
 
-ENABLE_IOSTATS_DISABLE=1
-THERMAL_GUARD_DECIC=390
+TEMP_UPDATE_INTERVAL=300
+TEMP_DELTA_THRESHOLD=10
 
 STORAGE_IRQ_PATTERNS="ufshcd|ufs"
 NETWORK_IRQ_PATTERNS="wlan|wifi|wcnss|bcmdhd|dhd|rmnet|ipa"
@@ -21,9 +21,9 @@ safe_read() {
     [ -r "$1" ] && cat "$1" 2>/dev/null
 }
 
-safe_write() {
-    local value="$1"
-    local path="$2"
+safe_write_if_needed() {
+    local path="$1"
+    local value="$2"
     local label="$3"
     local current
 
@@ -55,20 +55,6 @@ safe_write() {
 
     log_line "[FAIL] $label: write rejected"
     return 1
-}
-
-verify_prop() {
-    local name="$1"
-    local prop="$2"
-    local expected="$3"
-    local current
-
-    current="$(getprop "$prop")"
-    if [ "$current" = "$expected" ]; then
-        log_line "[PASS] $name: $current"
-    else
-        log_line "[INFO] $name: Expected $expected, got ${current:-<empty>}"
-    fi
 }
 
 get_battery_temp_decic() {
@@ -108,291 +94,82 @@ format_temp_label() {
     echo "🌡️ ${whole}.${frac}C"
 }
 
-is_swap_active() {
-    local line
-    local used
+get_dashboard_status() {
+    local temp_decic="$1"
+    local temp_ui
 
-    if [ ! -r /proc/swaps ]; then
-        return 1
-    fi
-
-    while read -r line; do
-        case "$line" in
-            Filename*|'')
-                continue
-                ;;
-        esac
-
-        used="$(echo "$line" | awk '{print $4}')"
-        if [ -n "$used" ]; then
-            return 0
-        fi
-    done < /proc/swaps
-
-    return 1
-}
-
-get_active_scheduler() {
-    local content="$1"
-    echo "$content" | sed -n 's/.*\[\([^]]*\)\].*/\1/p'
-}
-
-set_scheduler_if_available() {
-    local scheduler_path="$1"
-    local desired="$2"
-    local label="$3"
-    local current
-    local active
-
-    if [ ! -e "$scheduler_path" ]; then
-        log_line "[SKIP] $label: scheduler node missing"
-        return 1
-    fi
-
-    if [ ! -w "$scheduler_path" ]; then
-        log_line "[SKIP] $label: scheduler node not writable"
-        return 1
-    fi
-
-    current="$(safe_read "$scheduler_path")"
-    active="$(get_active_scheduler "$current")"
-
-    if [ "$active" = "$desired" ]; then
-        log_line "[PASS] $label: already set to $desired"
-        return 0
-    fi
-
-    case "$current" in
-        *"$desired"*)
-            if echo "$desired" > "$scheduler_path" 2>/dev/null; then
-                current="$(safe_read "$scheduler_path")"
-                active="$(get_active_scheduler "$current")"
-                if [ "$active" = "$desired" ]; then
-                    log_line "[PASS] $label: applied $desired"
-                    return 0
-                fi
-                log_line "[FAIL] $label: scheduler stayed on ${active:-unknown}"
-                return 1
-            fi
-            log_line "[FAIL] $label: scheduler write rejected"
-            return 1
-            ;;
-        *)
-            log_line "[SKIP] $label: '$desired' scheduler not available"
-            return 1
-            ;;
-    esac
-}
-
-is_relevant_block_device() {
-    local base="$1"
-    local dev_path="$2"
-
-    case "$base" in
-        dm-*|loop*|ram*|zram*|md*|sr*|fd*)
-            return 1
-            ;;
-    esac
-
-    [ -d "$dev_path/queue" ] || return 1
-    [ -e "$dev_path/device" ] || return 1
-
-    return 0
-}
-
-apply_vm_tuning() {
-    log_line ""
-    log_line "[INFO] VIRTUAL MEMORY AUDIT:"
-
-    safe_write "60" "/proc/sys/vm/vfs_cache_pressure" "VFS Cache Pressure"
-    safe_write "5" "/proc/sys/vm/dirty_background_ratio" "VM Dirty Background Ratio"
-    safe_write "12" "/proc/sys/vm/dirty_ratio" "VM Dirty Ratio"
-
-    if is_swap_active; then
-        safe_write "30" "/proc/sys/vm/swappiness" "VM Swappiness"
+    temp_ui="$(format_temp_label "$temp_decic")"
+    if grep -q "FAIL" "$LOG_FILE" 2>/dev/null; then
+        echo "⚠️ Status: v2.2-STABLE | $temp_ui | Critical issue detected"
     else
-        log_line "[SKIP] VM Swappiness: no active swap or zram detected"
+        echo "🚀 Status: v2.2-STABLE | $temp_ui | All critical checks passed"
     fi
 }
 
-apply_block_tuning() {
-    local dev
-    local base
-    local tuned=0
-    local skipped=0
+abs_diff_decic() {
+    local a="$1"
+    local b="$2"
+    local diff
 
-    log_line ""
-    log_line "[INFO] BLOCK I/O AUDIT:"
-
-    for dev in /sys/block/*; do
-        [ -d "$dev" ] || continue
-        base="$(basename "$dev")"
-
-        if ! is_relevant_block_device "$base" "$dev"; then
-            skipped=$((skipped + 1))
-            log_line "[SKIP] Block Device ($base): not a physical target for tuning"
-            continue
-        fi
-
-        set_scheduler_if_available "$dev/queue/scheduler" "none" "Block Scheduler ($base)"
-        safe_write "256" "$dev/queue/read_ahead_kb" "Block Read Ahead ($base)"
-
-        if [ "$ENABLE_IOSTATS_DISABLE" = "1" ]; then
-            if [ -e "$dev/queue/iostats" ]; then
-                safe_write "0" "$dev/queue/iostats" "Block IO Stats ($base)"
-            else
-                log_line "[SKIP] Block IO Stats ($base): node missing"
-            fi
-        else
-            log_line "[SKIP] Block IO Stats ($base): feature disabled"
-        fi
-
-        tuned=$((tuned + 1))
-    done
-
-    log_line "[PASS] Block Device Scan: tuned $tuned devices, skipped $skipped"
-}
-
-network_value_available() {
-    local path="$1"
-    local token="$2"
-    local current
-
-    current="$(safe_read "$path")"
-    case "$current" in
-        *"$token"*)
-            return 0
-            ;;
-    esac
-    return 1
-}
-
-apply_network_tuning() {
-    local cc_available
-    local current_cc
-
-    log_line ""
-    log_line "[INFO] NETWORK AUDIT:"
-
-    safe_write "fq" "/proc/sys/net/core/default_qdisc" "Network Qdisc"
-
-    cc_available="/proc/sys/net/ipv4/tcp_available_congestion_control"
-    if [ -e "$cc_available" ]; then
-        if network_value_available "$cc_available" "cubic"; then
-            safe_write "cubic" "/proc/sys/net/ipv4/tcp_congestion_control" "TCP Congestion"
-        else
-            log_line "[SKIP] TCP Congestion: cubic not available"
-        fi
-    elif [ -e "/proc/sys/net/ipv4/tcp_congestion_control" ]; then
-        current_cc="$(safe_read /proc/sys/net/ipv4/tcp_congestion_control)"
-        if [ "$current_cc" = "cubic" ]; then
-            log_line "[PASS] TCP Congestion: already set to cubic"
-        else
-            log_line "[SKIP] TCP Congestion: availability unknown on this kernel"
-        fi
-    else
-        log_line "[SKIP] TCP Congestion: node missing"
+    diff=$((a - b))
+    if [ "$diff" -lt 0 ]; then
+        diff=$((diff * -1))
     fi
-
-    safe_write "1" "/proc/sys/net/ipv4/tcp_fastopen" "TCP Fast Open"
-}
-
-set_irq_affinity() {
-    local path="$1"
-    local mask="$2"
-    local label="$3"
-    local current
-
-    if [ ! -e "$path" ]; then
-        log_line "[SKIP] $label: affinity node missing"
-        return 2
-    fi
-
-    if [ ! -w "$path" ]; then
-        log_line "[SKIP] $label: affinity node not writable"
-        return 2
-    fi
-
-    current="$(safe_read "$path")"
-    if [ "$current" = "$mask" ]; then
-        log_line "[PASS] $label: already set to $mask"
-        return 0
-    fi
-
-    if echo "$mask" > "$path" 2>/dev/null; then
-        current="$(safe_read "$path")"
-        if [ "$current" = "$mask" ]; then
-            log_line "[PASS] $label: applied $mask"
-            return 0
-        fi
-    fi
-
-    log_line "[SKIP] $label: kernel rejected affinity change; leaving default routing"
-    return 1
-}
-
-set_irq_affinity_if_present() {
-    local patterns="$1"
-    local mask="$2"
-    local label="$3"
-    local applied=0
-    local rejected=0
-    local missing=0
-    local irq_num
-    local rc
-
-    for irq_num in $(grep -iE "$patterns" /proc/interrupts 2>/dev/null | awk -F: '{print $1}' | tr -d ' '); do
-        set_irq_affinity "/proc/irq/$irq_num/smp_affinity" "$mask" "$label IRQ $irq_num"
-        rc=$?
-        case "$rc" in
-            0) applied=$((applied + 1)) ;;
-            1) rejected=$((rejected + 1)) ;;
-            *) missing=$((missing + 1)) ;;
-        esac
-    done
-
-    if [ "$applied" -eq 0 ] && [ "$rejected" -eq 0 ] && [ "$missing" -eq 0 ]; then
-        log_line "[SKIP] $label: no matching IRQs found"
-    else
-        log_line "[PASS] $label: applied $applied, rejected $rejected, skipped $missing"
-    fi
-}
-
-apply_irq_tuning() {
-    log_line ""
-    log_line "[INFO] SELECTIVE IRQ AFFINITY AUDIT:"
-
-    set_irq_affinity_if_present "$STORAGE_IRQ_PATTERNS" "70" "Storage IRQ"
-    set_irq_affinity_if_present "$NETWORK_IRQ_PATTERNS" "70" "Network IRQ"
-    set_irq_affinity_if_present "$TOUCH_IRQ_PATTERNS" "f0" "Touch IRQ"
+    echo "$diff"
 }
 
 update_dashboard() {
-    local temp_decic
-    local temp_ui
+    local force_log="$1"
+    local temp_decic="$2"
     local status
     local current_line
 
-    temp_decic="$(get_battery_temp_decic)"
-    temp_ui="$(format_temp_label "$temp_decic")"
-
-    if grep -q "FAIL" "$LOG_FILE" 2>/dev/null; then
-        status="⚠️ Status: v2.2-STABLE | $temp_ui | Critical issue detected"
-    else
-        status="🚀 Status: v2.2-STABLE | $temp_ui | All critical checks passed"
-    fi
-
+    status="$(get_dashboard_status "$temp_decic")"
     current_line="$(grep '^description=' "$PROP_FILE" 2>/dev/null)"
+
     if [ "$current_line" = "description=$status" ]; then
-        log_line "[PASS] Dashboard: description already up to date"
         return 0
     fi
 
     if sed -i "s/^description=.*/description=$status/" "$PROP_FILE" 2>/dev/null; then
-        log_line "[PASS] Dashboard: description updated"
-    else
-        log_line "[FAIL] Dashboard: unable to update module.prop"
+        if [ "$force_log" = "1" ]; then
+            log_line "[PASS] Dashboard: description updated"
+        fi
+        return 0
     fi
+
+    log_line "[FAIL] Dashboard: unable to update module.prop"
+    return 1
+}
+
+start_temp_dashboard_updater() {
+    (
+        local last_temp_decic
+        local current_temp_decic
+        local delta
+
+        last_temp_decic="$1"
+
+        while true; do
+            sleep "$TEMP_UPDATE_INTERVAL"
+
+            current_temp_decic="$(get_battery_temp_decic)"
+            if [ -z "$current_temp_decic" ]; then
+                continue
+            fi
+
+            if [ -n "$last_temp_decic" ]; then
+                delta="$(abs_diff_decic "$current_temp_decic" "$last_temp_decic")"
+                if [ "$delta" -lt "$TEMP_DELTA_THRESHOLD" ]; then
+                    continue
+                fi
+            fi
+
+            if update_dashboard "0" "$current_temp_decic"; then
+                last_temp_decic="$current_temp_decic"
+            fi
+        done
+    ) &
 }
 
 wait_for_full_boot() {
@@ -424,6 +201,139 @@ wait_for_full_boot() {
     return 0
 }
 
+has_active_swap() {
+    local line
+
+    if [ ! -r /proc/swaps ]; then
+        return 1
+    fi
+
+    while read -r line; do
+        case "$line" in
+            Filename*|'')
+                continue
+                ;;
+            *)
+                return 0
+                ;;
+        esac
+    done < /proc/swaps
+
+    return 1
+}
+
+apply_page_cluster() {
+    log_line ""
+    log_line "[INFO] PAGE CLUSTER AUDIT:"
+
+    if has_active_swap; then
+        safe_write_if_needed "/proc/sys/vm/page-cluster" "0" "VM Page Cluster"
+    else
+        log_line "[SKIP] VM Page Cluster: no active swap or zram detected"
+    fi
+}
+
+set_irq_affinity_value() {
+    local path="$1"
+    local mask="$2"
+    local label="$3"
+    local current
+
+    if [ ! -e "$path" ]; then
+        log_line "[SKIP] $label: affinity node missing"
+        return 2
+    fi
+
+    if [ ! -w "$path" ]; then
+        log_line "[SKIP] $label: affinity node not writable"
+        return 3
+    fi
+
+    current="$(safe_read "$path")"
+    if [ "$current" = "$mask" ]; then
+        log_line "[PASS] $label: already set to $mask"
+        return 0
+    fi
+
+    if echo "$mask" > "$path" 2>/dev/null; then
+        current="$(safe_read "$path")"
+        if [ "$current" = "$mask" ]; then
+            log_line "[PASS] $label: applied $mask"
+            return 0
+        fi
+    fi
+
+    log_line "[SKIP] $label: kernel rejected affinity change; leaving default routing"
+    return 1
+}
+
+apply_irq_affinity() {
+    local patterns="$1"
+    local mask="$2"
+    local label="$3"
+    local found=0
+    local applied=0
+    local rejected=0
+    local omitted=0
+    local irq_num
+    local rc
+
+    for irq_num in $(grep -iE "$patterns" /proc/interrupts 2>/dev/null | awk -F: '{print $1}' | tr -d ' '); do
+        found=$((found + 1))
+        set_irq_affinity_value "/proc/irq/$irq_num/smp_affinity" "$mask" "$label IRQ $irq_num"
+        rc=$?
+        case "$rc" in
+            0) applied=$((applied + 1)) ;;
+            1) rejected=$((rejected + 1)) ;;
+            *) omitted=$((omitted + 1)) ;;
+        esac
+    done
+
+    if [ "$found" -eq 0 ]; then
+        log_line "[SKIP] $label: no matching IRQs found"
+    fi
+
+    log_line "[PASS] $label Summary: found $found | applied $applied | rejected $rejected | omitted $omitted"
+}
+
+apply_selective_irq_affinity() {
+    log_line ""
+    log_line "[INFO] SELECTIVE IRQ AFFINITY AUDIT:"
+
+    apply_irq_affinity "$STORAGE_IRQ_PATTERNS" "70" "Storage/UFS IRQ"
+    apply_irq_affinity "$NETWORK_IRQ_PATTERNS" "70" "Wi-Fi/Network IRQ"
+    apply_irq_affinity "$TOUCH_IRQ_PATTERNS" "f0" "Touch/Input IRQ"
+}
+
+apply_uclamp_latency_sensitive() {
+    local group_name="$1"
+    local path=""
+    local candidate
+
+    for candidate in \
+        "/dev/cpuctl/$group_name/cpu.uclamp.latency_sensitive" \
+        "/dev/stune/$group_name/cpu.uclamp.latency_sensitive" \
+        "/sys/fs/cgroup/$group_name/cpu.uclamp.latency_sensitive"
+    do
+        if [ -e "$candidate" ]; then
+            path="$candidate"
+            break
+        fi
+    done
+
+    if [ -z "$path" ]; then
+        log_line "[SKIP] Uclamp Latency Sensitive ($group_name): path not found"
+        return 1
+    fi
+
+    if ! safe_write_if_needed "$path" "1" "Uclamp Latency Sensitive ($group_name)"; then
+        log_line "[SKIP] Uclamp Latency Sensitive ($group_name): kernel rejected or path unavailable"
+        return 1
+    fi
+
+    return 0
+}
+
 [ -f "$LOG_FILE" ] || touch "$LOG_FILE"
 chmod 0644 "$LOG_FILE" 2>/dev/null
 
@@ -435,18 +345,11 @@ echo "===============================================" >> "$LOG_FILE"
 
 log_line "[INFO] Waiting for full Android boot..."
 if ! wait_for_full_boot; then
-    update_dashboard
+    update_dashboard "1" ""
     exit 0
 fi
 
 log_line "[OK] System ready. Deploying v2.2-STABLE profile..."
-
-log_line ""
-log_line "[INFO] SYSTEM AND RAM AUDIT (read-only):"
-verify_prop "Dalvik Heap Start" "dalvik.vm.heapstartsize" "32m"
-verify_prop "Dalvik Heap Growth" "dalvik.vm.heapgrowthlimit" "512m"
-verify_prop "Dalvik Heap Size" "dalvik.vm.heapsize" "1024m"
-verify_prop "Touch Latency" "persist.sys.touch.latency" "0"
 
 TEMP_DECIC="$(get_battery_temp_decic)"
 if [ -n "$TEMP_DECIC" ]; then
@@ -455,34 +358,21 @@ else
     log_line "[SKIP] Battery Temp: sensor unavailable or invalid"
 fi
 
-THERMAL_GUARD_ACTIVE=0
-if [ -n "$TEMP_DECIC" ] && [ "$TEMP_DECIC" -ge "$THERMAL_GUARD_DECIC" ]; then
-    THERMAL_GUARD_ACTIVE=1
-    log_line "[SKIP] Thermal Guard: active at $(format_temp_label "$TEMP_DECIC"), skipping aggressive I/O and IRQ tuning"
-fi
+apply_page_cluster
+apply_selective_irq_affinity
 
-apply_vm_tuning
-apply_network_tuning
-
-if [ "$THERMAL_GUARD_ACTIVE" -eq 0 ]; then
-    apply_block_tuning
-    apply_irq_tuning
-else
-    log_line ""
-    log_line "[SKIP] BLOCK I/O AUDIT: skipped by thermal guard"
-    log_line ""
-    log_line "[SKIP] SELECTIVE IRQ AFFINITY AUDIT: skipped by thermal guard"
-fi
+log_line ""
+log_line "[INFO] UCLAMP LATENCY SENSITIVE AUDIT:"
+apply_uclamp_latency_sensitive "foreground_window"
+apply_uclamp_latency_sensitive "top-app"
 
 echo "" >> "$LOG_FILE"
 echo "===============================================" >> "$LOG_FILE"
 echo "   AUDIT COMPLETE - PROFILE ACTIVE" >> "$LOG_FILE"
 echo "===============================================" >> "$LOG_FILE"
 
-(
-    sleep 10
-    log_line "[INFO] Updating Magisk dashboard after post-boot grace period"
-    update_dashboard
-) &
+sleep 10
+update_dashboard "1" "$TEMP_DECIC"
+start_temp_dashboard_updater "$TEMP_DECIC"
 
 exit 0
