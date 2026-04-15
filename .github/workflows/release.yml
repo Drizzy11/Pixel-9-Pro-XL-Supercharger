@@ -1,4 +1,4 @@
-name: Supercharger Auto-Release Engine
+name: Supercharger Thermal Control Release
 
 on:
   push:
@@ -17,67 +17,106 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Extract Version Info
-        id: version_logic
+      - name: Resolve release metadata
+        id: meta
         shell: bash
         run: |
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          set -x
+
+          TAG_NAME="${GITHUB_REF_NAME}"
+          MODULE_VERSION="$(sed -n 's/^version=//p' module.prop | head -n1)"
+
+          if [[ -z "${MODULE_VERSION}" ]]; then
+            echo "Failed to read version from module.prop" >&2
+            exit 1
+          fi
+
+          if [[ "${TAG_NAME}" != "${MODULE_VERSION}" ]]; then
+            echo "Tag mismatch: pushed tag '${TAG_NAME}' does not match module.prop version '${MODULE_VERSION}'" >&2
+            exit 1
+          fi
 
           CHANNEL="stable"
           PRERELEASE="false"
           TITLE_SUFFIX=""
 
-          if [[ "$TAG_NAME" == *"-alpha"* ]]; then
+          if [[ "${TAG_NAME}" == *"-alpha"* ]]; then
             CHANNEL="alpha"
             PRERELEASE="true"
             TITLE_SUFFIX=" (Alpha)"
-          elif [[ "$TAG_NAME" == *"-beta"* ]]; then
+          elif [[ "${TAG_NAME}" == *"-beta"* ]]; then
             CHANNEL="beta"
             PRERELEASE="true"
             TITLE_SUFFIX=" (Beta)"
-          elif [[ "$TAG_NAME" == *"-rc"* ]]; then
+          elif [[ "${TAG_NAME}" == *"-rc"* ]]; then
             CHANNEL="rc"
             PRERELEASE="true"
             TITLE_SUFFIX=" (RC)"
           fi
 
-          ASSET_BASENAME="Pixel-9-Pro-Series-Supercharger-${TAG_NAME}"
-          RELEASE_TITLE="Pixel 9 Pro Series Supercharger ${TAG_NAME}${TITLE_SUFFIX}"
+          ASSET_BASENAME="Supercharger_Thermal_Control-${TAG_NAME}"
+          RELEASE_TITLE="Supercharger Thermal Control ${TAG_NAME}${TITLE_SUFFIX}"
 
-          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
-          echo "is_prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
-          echo "asset_basename=$ASSET_BASENAME" >> "$GITHUB_OUTPUT"
-          echo "release_title=$RELEASE_TITLE" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "module_version=${MODULE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "asset_basename=${ASSET_BASENAME}" >> "$GITHUB_OUTPUT"
+          echo "release_title=${RELEASE_TITLE}" >> "$GITHUB_OUTPUT"
 
-      - name: Create Module ZIP
+      - name: Create module ZIP
         shell: bash
+        env:
+          ASSET_BASENAME: ${{ steps.meta.outputs.asset_basename }}
         run: |
-          ZIP_NAME="${{ steps.version_logic.outputs.asset_basename }}.zip"
+          set -euo pipefail
+          set -x
 
-          zip -r "$ZIP_NAME" . \
+          mkdir -p dist
+
+          ZIP_PATH="dist/${ASSET_BASENAME}.zip"
+          SHA_PATH="${ZIP_PATH}.sha256"
+
+          rm -f "${ZIP_PATH}" "${SHA_PATH}"
+
+          zip -r "${ZIP_PATH}" . \
             -x ".git/*" \
+               ".git/**" \
                ".github/*" \
-               ".gitignore" \
-               ".gitattributes" \
-               "README.md" \
-               "LICENSE" \
-               "changelog.md" \
-               "*.log" \
+               ".github/**" \
+               "dist/*" \
+               "dist/**" \
+               "action.log" \
+               "current_profile" \
+               "last_action_status.txt" \
+               "*.DS_Store" \
+               "*.swp" \
                "*.tmp" \
-               ".DS_Store"
+               "*.log"
 
-          sha256sum "$ZIP_NAME" > "${ZIP_NAME}.sha256"
+          sha256sum "${ZIP_PATH}" > "${SHA_PATH}"
 
-      - name: Generate Release Notes
+          unzip -l "${ZIP_PATH}" | sed -n '1,200p'
+          ls -lh "${ZIP_PATH}" "${SHA_PATH}"
+
+      - name: Generate release notes
         shell: bash
+        env:
+          TAG_NAME: ${{ steps.meta.outputs.tag_name }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+          RELEASE_TITLE: ${{ steps.meta.outputs.release_title }}
+          ASSET_BASENAME: ${{ steps.meta.outputs.asset_basename }}
         run: |
-          python3 << 'PY'
+          set -euo pipefail
+          set -x
+
+          python3 <<'PY'
           import os
           import re
           from pathlib import Path
@@ -87,16 +126,11 @@ jobs:
           title = os.environ["RELEASE_TITLE"]
           asset = os.environ["ASSET_BASENAME"]
 
-          changelog = Path("changelog.md")
           body = None
 
           def extract_section(text: str, candidates: list[str]) -> str | None:
               lines = text.splitlines()
-              starts = []
-              for i, line in enumerate(lines):
-                  stripped = line.strip()
-                  if stripped.startswith("## "):
-                      starts.append(i)
+              starts = [i for i, line in enumerate(lines) if line.strip().startswith("## ")]
 
               for i in starts:
                   heading = lines[i].strip()
@@ -107,17 +141,18 @@ jobs:
                       )
                       if pattern.search(heading):
                           j = i + 1
-                          while j < len(lines) and not lines[j].startswith("## "):
+                          while j < len(lines) and not lines[j].strip().startswith("## "):
                               j += 1
-                          section = "\n".join(lines[i:j]).strip()
-                          return section
+                          return "\n".join(lines[i:j]).strip()
               return None
 
-          if changelog.exists():
-              text = changelog.read_text(encoding="utf-8", errors="ignore")
+          changelog_candidates = [Path("changelog.md"), Path("CHANGELOG.md")]
+          changelog_path = next((p for p in changelog_candidates if p.exists()), None)
+
+          if changelog_path:
+              text = changelog_path.read_text(encoding="utf-8", errors="ignore")
               normalized = tag[1:] if tag.lower().startswith("v") else tag
-              candidates = [tag, normalized]
-              body = extract_section(text, candidates)
+              body = extract_section(text, [tag, normalized])
 
           if not body:
               prerelease_note = ""
@@ -134,30 +169,54 @@ jobs:
 
           ### Notes
           - Built automatically from the tagged source
+          - Version tag is validated against `module.prop`
           - Prerelease status is inferred from the tag suffix (`-alpha`, `-beta`, `-rc`)
-          - Stable releases are marked as latest
+          - Existing releases are updated instead of failing
           """
 
           Path("release-notes.md").write_text(body.strip() + "\n", encoding="utf-8")
           PY
-        env:
-          TAG_NAME: ${{ steps.version_logic.outputs.tag_name }}
-          CHANNEL: ${{ steps.version_logic.outputs.channel }}
-          RELEASE_TITLE: ${{ steps.version_logic.outputs.release_title }}
-          ASSET_BASENAME: ${{ steps.version_logic.outputs.asset_basename }}
 
-      - name: Publish Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ steps.version_logic.outputs.release_title }}
-          tag_name: ${{ steps.version_logic.outputs.tag_name }}
-          prerelease: ${{ steps.version_logic.outputs.is_prerelease }}
-          make_latest: ${{ steps.version_logic.outputs.is_prerelease == 'false' && 'true' || 'false' }}
-          body_path: release-notes.md
-          fail_on_unmatched_files: true
-          preserve_order: true
-          files: |
-            ${{ steps.version_logic.outputs.asset_basename }}.zip
-            ${{ steps.version_logic.outputs.asset_basename }}.zip.sha256
+          sed -n '1,200p' release-notes.md
+
+      - name: Publish or update GitHub release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.meta.outputs.tag_name }}
+          RELEASE_TITLE: ${{ steps.meta.outputs.release_title }}
+          PRERELEASE: ${{ steps.meta.outputs.is_prerelease }}
+          ASSET_BASENAME: ${{ steps.meta.outputs.asset_basename }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -x
+
+          ZIP_PATH="dist/${ASSET_BASENAME}.zip"
+          SHA_PATH="${ZIP_PATH}.sha256"
+
+          PRERELEASE_ARGS=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            PRERELEASE_ARGS+=(--prerelease)
+          fi
+
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Release ${TAG_NAME} already exists. Updating it."
+            gh release upload "${TAG_NAME}" \
+              "${ZIP_PATH}" \
+              "${SHA_PATH}" \
+              --clobber
+
+            gh release edit "${TAG_NAME}" \
+              --title "${RELEASE_TITLE}" \
+              --notes-file release-notes.md \
+              "${PRERELEASE_ARGS[@]}"
+          else
+            echo "Release ${TAG_NAME} does not exist. Creating it."
+            gh release create "${TAG_NAME}" \
+              "${ZIP_PATH}" \
+              "${SHA_PATH}" \
+              --verify-tag \
+              --notes-file release-notes.md \
+              --title "${RELEASE_TITLE}" \
+              "${PRERELEASE_ARGS[@]}"
+          fi
