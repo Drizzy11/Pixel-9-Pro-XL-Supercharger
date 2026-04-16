@@ -1,10 +1,22 @@
 # 🚀 Pixel 9 Pro Series Supercharger v2.4 STABLE
 
-[![Device](https://img.shields.io/badge/Device-Pixel_9_Pro_Series-blue?logo=google&logoColor=white)](https://github.com/Drizzy07x/Supercharger_Pixel_9_Pro_Series)
-[![SoC](https://img.shields.io/badge/SoC-Tensor_G4-orange)](https://github.com/Drizzy07x/Supercharger_Pixel_9_Pro_Series)
-[![Version](https://img.shields.io/badge/Version-v2.4_STABLE-green)](https://github.com/Drizzy07x/Supercharger_Pixel_9_Pro_Series/releases)
-[![Android](https://img.shields.io/badge/Android-16_QPR3_&_17-brightgreen)](https://github.com/Drizzy07x/Supercharger_Pixel_9_Pro_Series)
-[![Root](https://img.shields.io/badge/Root-Magisk_/_KernelSU-red)](https://github.com/Drizzy07x/Supercharger_Pixel_9_Pro_Series)
+<p align="center">
+  <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
+    <img src="https://img.shields.io/badge/Device-Pixel%209%20Series-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Device">
+  </a>
+  <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
+    <img src="https://img.shields.io/badge/SoC-Tensor%20G4-F29900?style=for-the-badge" alt="SoC">
+  </a>
+  <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases">
+    <img src="https://img.shields.io/badge/Version-v2.4%20STABLE-34A853?style=for-the-badge" alt="Version">
+  </a>
+  <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
+    <img src="https://img.shields.io/badge/Android-16%20QPR3%20%26%2017-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
+  </a>
+  <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
+    <img src="https://img.shields.io/badge/Root-Magisk%20%2F%20KernelSU-EA4335?style=for-the-badge" alt="Root">
+  </a>
+</p>
 
 **Developed by:** [Drizzy07x](https://github.com/Drizzy07x)  
 **Target devices:** Pixel 9 Pro XL (`komodo`), Pixel 9 Pro (`caiman`), Pixel 9 (`comet`)  
