@@ -11,7 +11,7 @@
     <img src="https://img.shields.io/badge/Version-v2.4%20STABLE-34A853?style=for-the-badge" alt="Version">
   </a>
   <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
-    <img src="https://img.shields.io/badge/Android-16%20QPR3%20%26%2017-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
+    <img src="https://img.shields.io/badge/Android-16%20%26%2017-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
   </a>
   <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
     <img src="https://img.shields.io/badge/Root-Magisk%20%2F%20KernelSU-EA4335?style=for-the-badge" alt="Root">
