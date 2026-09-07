@@ -11,14 +11,22 @@ let appEntries = [];
 let commandBusy = false;
 let statusReady = false;
 let appSelectionAvailable = false;
-let appPollTimer = null;
-let maintPollTimer = null;
-let appPollUpdating = false;
-let maintPollUpdating = false;
+const taskPollers = {
+  app: {timer:null, inFlight:false, generation:0},
+  maintenance: {timer:null, inFlight:false, generation:0}
+};
+let statusRefresh = null;
+let visibilityGeneration = 0;
+let appListRequest = null;
+let appListLoaded = false;
+let appListFetchedAt = 0;
+let appListIdentity = '';
+let appListGeneration = 0;
+const APP_LIST_TTL_MS = 60000;
 const TASK_POLL_MS = 1800;
 const STATUS_ACTION_IDS = [
   '#maintenanceAllBtn', '#refreshAppsBtn', '#optimizeAllBtn', '#optimizeSystemBtn',
-  '#dexoptJobBtn', '#optimizeSelectedBtn', '#setActiveSmoothBtn', '#setGamingBtn',
+  '#dexoptJobBtn', '#optimizeSelectedBtn', '#recompileSelectedBtn', '#setActiveSmoothBtn', '#setGamingBtn',
   '#thermalEnableBtn', '#thermalDisableBtn', '#thermalBalancedBtn',
   '#thermalGamingBtn', '#thermalChargeCoolBtn'
 ];
@@ -63,8 +71,10 @@ function updateStatusActionButtons(){
   STATUS_ACTION_IDS.forEach(id => { const btn = $(id); if(btn) btn.disabled = commandBusy || !statusReady; });
 }
 function updateOptimizeSelectedButton(){
-  const btn = $('#optimizeSelectedBtn');
-  if(btn) btn.disabled = commandBusy || !statusReady || !appSelectionAvailable;
+  ['#optimizeSelectedBtn', '#recompileSelectedBtn'].forEach(id => {
+    const btn = $(id);
+    if(btn) btn.disabled = commandBusy || !statusReady || !appSelectionAvailable;
+  });
 }
 function setActionsBusy(busy){
   commandBusy = busy;
@@ -273,40 +283,29 @@ function renderStatus(){
   updateThermalButtons();
 }
 
-async function syncTaskStates(){
-  const next = {};
-  try { next.maint = parseEnv(await sh(`sh '${CTL}' maintenance-status 2>/dev/null || true`)); } catch (_) {}
-  try { next.app = parseEnv(await sh(`sh '${CTL}' app-opt-status 2>/dev/null || true`)); } catch (_) {}
-  return next;
+function anyTaskRunning(){
+  return isRunning(status.MAINTENANCE_TASK_STATE) || isRunning(status.APP_OPT_TASK_STATE);
 }
 
-function reconcileTasks(sync){
-  const maintRunning = isRunning(sync?.maint?.STATE || status.MAINTENANCE_TASK_STATE);
-  const appRunning = isRunning(sync?.app?.STATE || status.APP_OPT_TASK_STATE);
-
-  if(maintRunning){
-    status.TASK_STATE = 'running';
-    status.TASK_LABEL = sync?.maint?.LABEL || 'One-tap maintenance';
-  } else if(appRunning){
-    status.TASK_STATE = 'running';
-    status.TASK_LABEL = sync?.app?.LABEL || 'App optimization';
-  } else {
-    status.TASK_STATE = 'idle';
-    status.TASK_LABEL = 'Ready';
-  }
-
-  status.MAINTENANCE_TASK_STATE = sync?.maint?.STATE || status.MAINTENANCE_TASK_STATE || 'idle';
-  status.APP_OPT_TASK_STATE = sync?.app?.STATE || status.APP_OPT_TASK_STATE || 'idle';
+function invalidateAppList(){
+  appListLoaded = false;
+  appListGeneration++;
 }
 
 async function refreshStatus(){
-  const out = await sh(`sh '${CTL}' status-quiet`);
-  status = parseEnv(out);
-  reconcileTasks(await syncTaskStates());
-  status.BLOCK_AUDITED_LIST = await resolveStorageValue();
-  await resolveThermalAddon();
-  renderStatus();
-  return status;
+  if(statusRefresh) return statusRefresh;
+  const generation = visibilityGeneration;
+  statusRefresh = (async () => {
+    status = parseEnv(await sh(`sh '${CTL}' status-quiet`));
+    const identity = [status.BOOT_ID, status.VERSION, status.BUILD_INCREMENTAL].join('|');
+    if(identity !== appListIdentity){ invalidateAppList(); appListIdentity = identity; }
+    status.BLOCK_AUDITED_LIST = await resolveStorageValue();
+    await resolveThermalAddon();
+    if(!document.hidden && generation === visibilityGeneration) renderStatus();
+    return status;
+  })();
+  try { return await statusRefresh; }
+  finally { statusRefresh = null; }
 }
 
 async function loadLog(name=currentLog){
@@ -386,6 +385,7 @@ function renderAppList(filter=''){
 
   const q = String(filter || '').trim().toLowerCase();
   const filtered = q ? appEntries.filter(entry => `${entry.type} ${entry.pkg}`.toLowerCase().includes(q)) : appEntries;
+  const selected = select.value;
   select.innerHTML = '';
   appSelectionAvailable = filtered.length > 0;
   updateOptimizeSelectedButton();
@@ -395,6 +395,7 @@ function renderAppList(filter=''){
     opt.value = '';
     opt.textContent = appEntries.length ? 'No matching apps' : 'No apps available';
     select.appendChild(opt);
+    select.value = '';
     return;
   }
 
@@ -404,6 +405,7 @@ function renderAppList(filter=''){
     opt.textContent = `${appTypeLabel(entry.type)} · ${entry.pkg}`;
     select.appendChild(opt);
   }
+  select.value = filtered.some(entry => entry.pkg === selected) ? selected : filtered[0].pkg;
 }
 
 function showAppSelectMessage(message){
@@ -416,106 +418,108 @@ function showAppSelectMessage(message){
   select.appendChild(opt);
   appSelectionAvailable = false;
   updateOptimizeSelectedButton();
+  select.value = '';
 }
 
-async function loadAppList(){
-  const select = $('#appSelect');
-  if(!select) return;
-
-  showAppSelectMessage('Loading app list…');
-  try {
-    const out = await sh(`sh '${CTL}' list-apps`);
-    const seen = new Set();
-    appEntries = [];
-    for(const line of out.split(/\r?\n/)){
-      const entry = parseAppLine(line);
-      if(!entry || seen.has(entry.pkg)) continue;
-      seen.add(entry.pkg);
-      appEntries.push(entry);
-    }
-    renderAppList($('#appSearch')?.value || '');
-    const userCount = appEntries.filter(x => x.type === 'user').length;
-    const systemCount = appEntries.filter(x => x.type === 'system').length;
-    $('#optimizationBox').textContent = appEntries.length ? `App list ready.\nUser apps: ${userCount}\nSafe system apps: ${systemCount}` : 'Android did not report any apps for optimization.';
-  } catch(e){
-    appEntries = [];
-    showAppSelectMessage('App list unavailable');
-    $('#optimizationBox').textContent = `Could not refresh app list:\n${e.message}`;
+async function loadAppList({force=false}={}){
+  const generation = appListGeneration;
+  if(appListRequest){
+    await appListRequest;
+    if(generation !== appListGeneration && !document.hidden) return loadAppList();
+    return;
   }
+  if(!force && appListLoaded && Date.now() - appListFetchedAt < APP_LIST_TTL_MS){
+    renderAppList($('#appSearch')?.value || '');
+    return;
+  }
+  showAppSelectMessage('Loading app list…');
+  const refreshButton = $('#refreshAppsBtn');
+  if(refreshButton) refreshButton.disabled = true;
+  appListRequest = (async () => {
+    try {
+      const out = await sh(`sh '${CTL}' list-apps`);
+      if(generation !== appListGeneration) return;
+      appEntries = out.split(/\r?\n/).map(parseAppLine).filter(Boolean);
+      appListLoaded = true;
+      appListFetchedAt = Date.now();
+      renderAppList($('#appSearch')?.value || '');
+      if(!commandBusy){
+        const userCount = appEntries.filter(x => x.type === 'user').length;
+        const systemCount = appEntries.filter(x => x.type === 'system').length;
+        $('#optimizationBox').textContent = appEntries.length ? `App list ready.\nUser apps: ${userCount}\nSafe system apps: ${systemCount}` : 'Android did not report any apps for optimization.';
+      }
+    } catch(e){
+      if(generation !== appListGeneration) return;
+      appListLoaded = false;
+      appEntries = [];
+      showAppSelectMessage('App list unavailable');
+      if(!commandBusy) $('#optimizationBox').textContent = `Could not refresh app list:\n${e.message}`;
+    } finally {
+      if(refreshButton) refreshButton.disabled = commandBusy || !statusReady;
+    }
+  })();
+  try { await appListRequest; }
+  finally { appListRequest = null; }
+  if(generation !== appListGeneration && !document.hidden) return loadAppList();
 }
 
-async function readOptimizationProgress(){ return { state: parseEnv(await sh(`sh '${CTL}' app-opt-status 2>/dev/null || true`)), log: await sh(`sh '${CTL}' app-opt-log 2>/dev/null || true`) }; }
-async function readMaintenanceProgress(){ return { state: parseEnv(await sh(`sh '${CTL}' maintenance-status 2>/dev/null || true`)), log: await sh(`sh '${CTL}' maintenance-log 2>/dev/null || true`) }; }
-
-// A poll can resolve after a newer run replaced the timer; with a timer argument only its owner may clear it.
-function stopTimer(kind, timer){
-  if(kind === 'app' && appPollTimer && (timer === undefined || timer === appPollTimer)){ clearInterval(appPollTimer); appPollTimer = null; }
-  if(kind === 'maintenance' && maintPollTimer && (timer === undefined || timer === maintPollTimer)){ clearInterval(maintPollTimer); maintPollTimer = null; }
+async function readTaskProgress(kind){
+  const command = kind === 'app' ? 'app-opt-progress' : 'maintenance-progress';
+  const out = (await sh(`sh '${CTL}' ${command}`)).replace(/\r\n/g, '\n');
+  const separator = '\n__SUPERCHARGER_LOG__\n';
+  const boundary = out.indexOf(separator);
+  if(boundary < 0) throw new Error('Invalid task progress response');
+  const state = parseEnv(out.slice(0, boundary));
+  if(!['idle', 'running', 'done', 'failed', 'interrupted'].includes(state.STATE)) throw new Error('Task state unavailable');
+  return {state, log:out.slice(boundary + separator.length)};
 }
 
-async function updateOptimizationProgress(label){
-  const progress = await readOptimizationProgress();
-  const state = String(progress.state.STATE || 'idle').toLowerCase();
-  const job = progress.state.LABEL || label || 'App optimization';
-  $('#optimizationBox').textContent = `${job}\nStatus: ${stateLabel(state)}\n\n${(progress.log || '').trim() || 'Waiting for live output…'}`;
-  if(isRunning(state)){ showHeaderTask(job); return true; }
-  status.APP_OPT_TASK_STATE = state || 'idle';
-  status.TASK_STATE = 'idle';
-  status.TASK_LABEL = 'Ready';
-  // Release the busy flag only after the refresh, so a re-tap cannot land while the state is still being read.
-  await refreshStatus();
-  setActionsBusy(false);
-  return false;
+function stopTimer(kind){
+  const poller = taskPollers[kind];
+  if(poller.timer !== null) clearInterval(poller.timer);
+  poller.timer = null;
+  poller.generation++;
 }
 
-function startOptimizationPolling(label){
-  stopTimer('app');
+function startTaskPolling(kind, label){
+  stopTimer(kind);
+  const poller = taskPollers[kind];
+  if(document.hidden){ poller.needsRefresh = true; return; }
+  const box = kind === 'app' ? '#optimizationBox' : '#maintenanceBox';
+  const field = kind === 'app' ? 'APP_OPT_TASK_STATE' : 'MAINTENANCE_TASK_STATE';
+  let generation = poller.generation;
   showHeaderTask(label);
   setActionsBusy(true);
-  let timer = null;
   const poll = async () => {
-    if(appPollUpdating) return;
-    appPollUpdating = true;
-    try { if(!await updateOptimizationProgress(label)) stopTimer('app', timer); }
-    catch(e){ stopTimer('app', timer); setActionsBusy(false); $('#optimizationBox').textContent = `Could not read optimization progress:\n${e.message}`; }
-    finally { appPollUpdating = false; }
+    if(document.hidden || poller.inFlight || generation !== poller.generation) return;
+    poller.inFlight = true;
+    try {
+      const progress = await readTaskProgress(kind);
+      if(document.hidden || generation !== poller.generation) return;
+      const state = progress.state.STATE;
+      const job = progress.state.LABEL || label;
+      status[field] = state;
+      $(box).textContent = `${job}\nStatus: ${stateLabel(state)}\n\n${progress.log.trim() || 'Waiting for live output…'}`;
+      if(isRunning(state)){ showHeaderTask(job); return; }
+      stopTimer(kind);
+      generation = poller.generation;
+      await refreshStatus();
+      if(document.hidden || generation !== poller.generation) return;
+      setActionsBusy(anyTaskRunning());
+      resumeActiveTaskPolling();
+    } catch(e){
+      if(document.hidden || generation !== poller.generation) return;
+      stopTimer(kind);
+      setActionsBusy(false);
+      $(box).textContent = `Could not read task progress:\n${e.message}`;
+    } finally { poller.inFlight = false; }
   };
-  timer = setInterval(poll, TASK_POLL_MS);
-  appPollTimer = timer;
+  poller.timer = setInterval(poll, TASK_POLL_MS);
   poll();
 }
 
-async function updateMaintenanceProgress(label){
-  const progress = await readMaintenanceProgress();
-  const state = String(progress.state.STATE || 'idle').toLowerCase();
-  const job = progress.state.LABEL || label || 'One-tap maintenance';
-  $('#maintenanceBox').textContent = `${job}\nStatus: ${stateLabel(state)}\n\n${(progress.log || '').trim() || 'Waiting for live output…'}`;
-  if(isRunning(state)){ showHeaderTask(job); return true; }
-  status.MAINTENANCE_TASK_STATE = state || 'idle';
-  status.TASK_STATE = 'idle';
-  status.TASK_LABEL = 'Ready';
-  // Release the busy flag only after the refresh, so a re-tap cannot land while the state is still being read.
-  await refreshStatus();
-  setActionsBusy(false);
-  return false;
-}
-
-function startMaintenancePolling(label){
-  stopTimer('maintenance');
-  showHeaderTask(label);
-  setActionsBusy(true);
-  let timer = null;
-  const poll = async () => {
-    if(maintPollUpdating) return;
-    maintPollUpdating = true;
-    try { if(!await updateMaintenanceProgress(label)) stopTimer('maintenance', timer); }
-    catch(e){ stopTimer('maintenance', timer); setActionsBusy(false); $('#maintenanceBox').textContent = `Could not read maintenance progress:\n${e.message}`; }
-    finally { maintPollUpdating = false; }
-  };
-  timer = setInterval(poll, TASK_POLL_MS);
-  maintPollTimer = timer;
-  poll();
-}
+function startOptimizationPolling(label){ startTaskPolling('app', label); }
+function startMaintenancePolling(label){ startTaskPolling('maintenance', label); }
 
 async function runOptimization(label, startCmd){
   if(commandBusy) return;
@@ -585,9 +589,42 @@ function setThermalProfile(profile){
 }
 
 function resumeActiveTaskPolling(){
-  if(isRunning(status.APP_OPT_TASK_STATE)) startOptimizationPolling(status.APP_OPT_TASK_LABEL || 'App optimization');
-  if(isRunning(status.MAINTENANCE_TASK_STATE)) startMaintenancePolling(status.MAINTENANCE_TASK_LABEL || 'One-tap maintenance');
+  if(!document.hidden && !taskPollers.app.timer && isRunning(status.APP_OPT_TASK_STATE)) startOptimizationPolling(status.APP_OPT_TASK_LABEL || 'App optimization');
+  if(!document.hidden && !taskPollers.maintenance.timer && isRunning(status.MAINTENANCE_TASK_STATE)) startMaintenancePolling(status.MAINTENANCE_TASK_LABEL || 'One-tap maintenance');
 }
+
+document.addEventListener('visibilitychange', async () => {
+  const generation = ++visibilityGeneration;
+  if(document.hidden){
+    Object.values(taskPollers).forEach(p => { p.needsRefresh ||= p.timer !== null || p.inFlight; });
+  }
+  stopTimer('app');
+  stopTimer('maintenance');
+  if(document.hidden) return;
+  invalidateAppList();
+  try {
+    if(statusRefresh) await statusRefresh.catch(() => {});
+    if(document.hidden || generation !== visibilityGeneration) return;
+    await refreshStatus();
+    if(document.hidden || generation !== visibilityGeneration) return;
+    statusReady = true;
+    setActionsBusy(anyTaskRunning());
+    for(const [kind, poller] of Object.entries(taskPollers)){
+      if(poller.needsRefresh){
+        poller.needsRefresh = false;
+        startTaskPolling(kind, kind === 'app' ? 'App optimization' : 'One-tap maintenance');
+      }
+    }
+    resumeActiveTaskPolling();
+    if($('#maintenance')?.classList.contains('active')) await loadAppList();
+  } catch(e){
+    if(document.hidden || generation !== visibilityGeneration) return;
+    statusReady = false;
+    setActionsBusy(false);
+    setText('#statusValue', 'Unavailable');
+    setText('#statusSub', e.message);
+  }
+});
 
 $$('.tab').forEach(btn => btn.addEventListener('click', async () => {
   $$('.tab').forEach(b => b.classList.remove('active'));
@@ -601,7 +638,7 @@ $$('.tab').forEach(btn => btn.addEventListener('click', async () => {
 $$('.logBtn').forEach(btn => btn.addEventListener('click', () => loadLog(btn.dataset.log)));
 $('#copyLogBtn')?.addEventListener('click', () => copyText($('#logBox').textContent || '', $('#copyLogBtn')));
 $('#maintenanceAllBtn')?.addEventListener('click', () => runMaintenance('One-tap maintenance', `sh '${CTL}' maintenance-all-async`));
-$('#refreshAppsBtn')?.addEventListener('click', loadAppList);
+$('#refreshAppsBtn')?.addEventListener('click', () => loadAppList({force:true}));
 $('#appSearch')?.addEventListener('input', () => renderAppList($('#appSearch').value));
 $('#optimizeAllBtn')?.addEventListener('click', () => runOptimization('Optimizing app list', `sh '${CTL}' optimize-apps-async`));
 $('#optimizeSystemBtn')?.addEventListener('click', () => runOptimization('Optimizing safe system apps', `sh '${CTL}' optimize-system-apps-async`));
@@ -610,6 +647,11 @@ $('#optimizeSelectedBtn')?.addEventListener('click', () => {
   const pkg = $('#appSelect').value;
   if(!pkg){ $('#optimizationBox').textContent = 'Choose an app first.'; return; }
   runOptimization(`Optimizing ${pkg}`, `sh '${CTL}' optimize-app-async ${shellQuote(pkg)}`);
+});
+$('#recompileSelectedBtn')?.addEventListener('click', () => {
+  const pkg = $('#appSelect').value;
+  if(!pkg) return;
+  runOptimization(`Recompiling ${pkg}`, `sh '${CTL}' optimize-app-force-async ${shellQuote(pkg)}`);
 });
 $('#setActiveSmoothBtn')?.addEventListener('click', () => setProfile('active_smooth'));
 $('#setGamingBtn')?.addEventListener('click', () => setProfile('performance_gaming'));

@@ -99,6 +99,9 @@ test doubles; it never launches the complete Android entry scripts on the host.
 See [Testing](docs/TESTING.md) for covered scenarios and device validation limits.
 Installation, update persistence, and uninstall cleanup are covered by
 `scripts/test_install_lifecycle.py` using the same functions-only sandbox.
+App inventory batching, ART capability probing, result handling, and the bounded
+progress response are covered by `scripts/test_optimization_policy.py`. Its Android
+package-manager commands are test doubles; it never compiles host or device apps.
 
 ## Testing on a device
 

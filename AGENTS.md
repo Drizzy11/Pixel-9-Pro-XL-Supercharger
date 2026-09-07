@@ -31,6 +31,9 @@ thermal limits, or override charging behavior.
   Kernel-lock tests skip in native Git Bash; also run the Python suite in WSL:
   `wsl -d Ubuntu -- python3 -m unittest discover -s scripts -p 'test_*.py'`.
 - WebUI state changes need coverage in `scripts/webui_regression.test.mjs`.
+- App inventory/ART changes need `scripts/test_optimization_policy.py` coverage.
+  Keep normal compilation non-forced, preserve package exclusions, and probe
+  optional ART flags. Forced recompilation is an explicit selected-app action.
 - Release validation changes need Python regression coverage in `scripts/test_*.py`.
 - Worker/lock/status lifecycle changes need `scripts/test_task_lifecycle.py` coverage.
 - Keep the `.lock.guard` files at stable paths; never unlink them during runtime.

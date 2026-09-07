@@ -90,6 +90,24 @@ and [PR checks](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/actions
 Check the latest commit's results on
 [PR #11](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/pull/11) before merging.
 
+## WebUI and ART efficiency regressions
+
+`scripts/webui_regression.test.mjs` now includes 17 tests. New cases cover one
+progress bridge call, hidden/visible transitions, late responses, completion while
+hidden, cache expiry, refresh coalescing, invalidation during an in-flight request,
+error handling, and the explicit selected-app recompilation action.
+
+`scripts/test_optimization_policy.py` adds 10 host-only shell tests. Fixtures check
+two package inventory queries, preservation of user scope and core exclusions,
+failure versus empty inventory, `pm` fallback, ART capability probing once per
+batch, non-forced commands, zero-exit failure results, and bounded progress output.
+No forced `verify` fallback is sent. Without verbose ART output, accepted requests
+are reported without claiming that compilation was performed.
+
+The suite now contains 17 Node tests and 47 Python tests. Browser checks use a
+temporary preview bridge and therefore establish UI behavior only; device ART,
+root-manager lifecycle events, and real resource savings remain unverified.
+
 ## Device validation remains separate
 
 Host Bash behavior is not proof of Android `/system/bin/sh`, ART, root-manager

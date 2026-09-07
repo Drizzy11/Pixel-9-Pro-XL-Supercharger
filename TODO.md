@@ -15,6 +15,12 @@
 
 ## Completed locally
 
+- [x] Batch task state/log progress into one bounded response and suspend WebUI
+  pollers while hidden, rejecting stale responses and resuming completed jobs.
+- [x] Batch package inventories into two queries, cache the WebUI list for up to
+  one minute, and invalidate it on refresh, return, or boot/module identity changes.
+- [x] Use incremental ART compilation with capability-gated background priority,
+  explicit selected-app force, and truthful performed/skipped/failed reporting.
 - [x] Commit and push the maintenance branch, open PR #11, and verify the hosted
   push and pull-request checks on the initial maintenance commit `ad752d8`.
 - [x] Add isolated installation/update/uninstall tests, including all six saved

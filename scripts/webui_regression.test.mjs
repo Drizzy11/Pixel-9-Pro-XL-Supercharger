@@ -53,7 +53,7 @@ const ids = [
   'optimizationBox', 'maintenanceBox', 'profileBox', 'thermalBox', 'copyLogBtn',
   'maintenanceAllBtn', 'refreshAppsBtn', 'optimizeAllBtn', 'optimizeSystemBtn',
   'dexoptJobBtn', 'optimizeSelectedBtn', 'loadSnapshotBtn', 'copySnapshotBtn',
-  'overview', 'profiles', 'maintenance', 'logs', 'support'
+  'overview', 'profiles', 'maintenance', 'logs', 'support', 'recompileSelectedBtn'
 ];
 
 const elements = new Map(ids.map(id => [id, new FakeElement({ id })]));
@@ -61,7 +61,7 @@ const actionIds = [
   'setActiveSmoothBtn', 'setGamingBtn', 'thermalEnableBtn', 'thermalDisableBtn',
   'thermalBalancedBtn', 'thermalGamingBtn', 'thermalChargeCoolBtn', 'copyLogBtn',
   'maintenanceAllBtn', 'refreshAppsBtn', 'optimizeAllBtn', 'optimizeSystemBtn',
-  'dexoptJobBtn', 'optimizeSelectedBtn', 'loadSnapshotBtn', 'copySnapshotBtn'
+  'dexoptJobBtn', 'optimizeSelectedBtn', 'loadSnapshotBtn', 'copySnapshotBtn', 'recompileSelectedBtn'
 ];
 for (const id of actionIds) elements.get(id).classList.add('action');
 
@@ -79,7 +79,10 @@ const logButtons = ['debug.log', 'debug.previous.log', 'maintenance.log'].map((n
 );
 
 globalThis.window = globalThis;
+const documentListeners = new Map();
 globalThis.document = {
+  hidden: false,
+  addEventListener(type, handler) { documentListeners.set(type, handler); },
   querySelector(selector) { return selector.startsWith('#') ? elements.get(selector.slice(1)) || null : null; },
   querySelectorAll(selector) {
     if (selector === '.tab') return tabs;
@@ -96,8 +99,9 @@ Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true }
 
 let nextInterval = 1;
 const activeIntervals = new Set();
-globalThis.setInterval = () => { const id = nextInterval++; activeIntervals.add(id); return id; };
-globalThis.clearInterval = id => activeIntervals.delete(id);
+const intervalCallbacks = new Map();
+globalThis.setInterval = callback => { const id = nextInterval++; activeIntervals.add(id); intervalCallbacks.set(id, callback); return id; };
+globalThis.clearInterval = id => { activeIntervals.delete(id); intervalCallbacks.delete(id); };
 
 let failAppList = false;
 let failStatus = false;
@@ -107,6 +111,12 @@ let deferLogs = false;
 let statusExtra = '';
 let appOptState = 'done';
 let appOptLabel = 'Optimizing com.example.app';
+let deferProgress = false;
+let failProgress = false;
+let appListText = 'user|com.example.app\n';
+let deferApps = false;
+const pendingAppCallbacks = [];
+const pendingProgressCallbacks = [];
 const pendingStatusCallbacks = [];
 const pendingLogCallbacks = [];
 const execLog = [];
@@ -122,6 +132,8 @@ globalThis.ksu = {
   fullScreen() {}, enableEdgeToEdge() {}, toast() {},
   exec(command, _options, callbackName) {
     execLog.push(command);
+    if (command.includes('app-opt-progress') && deferProgress) { pendingProgressCallbacks.push(callbackName); return; }
+    if (command.includes('list-apps') && deferApps) { pendingAppCallbacks.push(callbackName); return; }
     if (command.includes('status-quiet') && deferStatus) {
       pendingStatusCallbacks.push(callbackName);
       return;
@@ -132,13 +144,13 @@ globalThis.ksu = {
     let stderr = '';
     if (command.includes('status-quiet') && failStatus) { errno = 1; stderr = 'module status unavailable'; }
     else if (command.includes('status-quiet')) stdout = statusExtra ? `${statusText}\n${statusExtra}` : statusText;
-    else if (command.includes('maintenance-status') && failMaintSync) { errno = 1; stderr = 'maintenance state unavailable'; }
-    else if (command.includes('maintenance-status')) stdout = 'STATE=idle\n';
-    else if (command.includes('app-opt-status')) stdout = `STATE=${appOptState}\nLABEL=${appOptLabel}\n`;
-    else if (command.includes('app-opt-log')) stdout = 'Finished';
+    else if (command.includes('maintenance-progress') && failMaintSync) { errno = 1; stderr = 'maintenance state unavailable'; }
+    else if (command.includes('maintenance-progress')) stdout = 'STATE=idle\n\n__SUPERCHARGER_LOG__\nFinished';
+    else if (command.includes('app-opt-progress') && failProgress) stdout = 'malformed progress';
+    else if (command.includes('app-opt-progress')) stdout = `STATE=${appOptState}\nLABEL=${appOptLabel}\n\n__SUPERCHARGER_LOG__\nFinished`;
     else if (command.includes('thermal-detect')) stdout = '';
     else if (command.includes('list-apps') && failAppList) { errno = 1; stderr = 'package manager unavailable'; }
-    else if (command.includes('list-apps')) stdout = 'user|com.example.app\n';
+    else if (command.includes('list-apps')) stdout = appListText;
     else if (command.includes('optimize-apps-async')) stdout = 'Started';
     else if (logFile) stdout = `${logFile[1]} contents`;
     if (logFile && deferLogs) { pendingLogCallbacks.push({ callbackName, stdout }); return; }
@@ -227,6 +239,124 @@ test('an interrupted task renders as finished and stops polling', async () => {
   assert.equal(activeIntervals.size, 0, 'an interrupted task kept polling');
   assert.equal(elements.get('optimizeAllBtn').disabled, false, 'an interrupted task left the controls disabled');
   appOptState = 'done';
+});
+
+test('app inventory is cached, explicitly refreshed, and invalidated after failure', async () => {
+  elements.get('appSearch').value = '';
+  execLog.length = 0;
+  const maintenance = tabs.find(tab => tab.dataset.tab === 'maintenance');
+  await maintenance.dispatch('click');
+  await maintenance.dispatch('click');
+  assert.equal(execLog.filter(c => c.includes('list-apps')).length, 0);
+  appListText = 'user|com.example.new\n';
+  await elements.get('refreshAppsBtn').dispatch('click');
+  assert.equal(elements.get('appSelect').value, 'com.example.new');
+  assert.equal(execLog.filter(c => c.includes('list-apps')).length, 1);
+  failAppList = true;
+  await elements.get('refreshAppsBtn').dispatch('click');
+  assert.equal(elements.get('optimizeSelectedBtn').disabled, true);
+  assert.equal(elements.get('recompileSelectedBtn').disabled, true);
+  failAppList = false;
+  appListText = 'user|com.example.app\n';
+  await maintenance.dispatch('click');
+  assert.equal(execLog.filter(c => c.includes('list-apps')).length, 3);
+  assert.equal(elements.get('appSelect').value, 'com.example.app');
+});
+
+test('app cache expires and overlapping refresh requests share one bridge call', async () => {
+  const originalNow = Date.now;
+  const later = originalNow() + 61000;
+  execLog.length = 0;
+  try {
+    Date.now = () => later;
+    await tabs.find(tab => tab.dataset.tab === 'maintenance').dispatch('click');
+    assert.equal(execLog.filter(c => c.includes('list-apps')).length, 1);
+  } finally { Date.now = originalNow; }
+  deferApps = true;
+  const first = elements.get('refreshAppsBtn').dispatch('click');
+  const second = elements.get('refreshAppsBtn').dispatch('click');
+  assert.equal(pendingAppCallbacks.length, 1);
+  assert.equal(elements.get('recompileSelectedBtn').disabled, true);
+  deferApps = false;
+  for(const callback of pendingAppCallbacks.splice(0)) globalThis[callback](0, appListText, '');
+  await Promise.all([first, second]);
+  assert.equal(execLog.filter(c => c.includes('list-apps')).length, 2);
+});
+
+test('hidden-page polling stops, ignores late responses, and renders completion on return', async () => {
+  execLog.length = 0;
+  appOptState = 'running';
+  statusExtra = 'APP_OPT_TASK_STATE=running\nAPP_OPT_TASK_LABEL=Optimizing com.example.app';
+  await elements.get('optimizeAllBtn').dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(execLog.filter(c => c.includes('app-opt-progress')).length, 1);
+  assert.equal(execLog.filter(c => c.includes('app-opt-status') || c.includes('app-opt-log')).length, 0);
+  const poll = [...intervalCallbacks.values()][0];
+  deferProgress = true;
+  const pending = poll();
+  const callsBeforeHide = execLog.length;
+  const displayed = elements.get('optimizationBox').textContent;
+  document.hidden = true;
+  await documentListeners.get('visibilitychange')();
+  await poll();
+  assert.equal(activeIntervals.size, 0);
+  assert.equal(execLog.length, callsBeforeHide);
+  deferProgress = false;
+  for(const callback of pendingProgressCallbacks.splice(0)) globalThis[callback](0, 'STATE=running\nLABEL=stale\n\n__SUPERCHARGER_LOG__\nstale', '');
+  await pending;
+  assert.equal(elements.get('optimizationBox').textContent, displayed);
+  appOptState = 'done';
+  statusExtra = 'APP_OPT_TASK_STATE=done';
+  document.hidden = false;
+  await documentListeners.get('visibilitychange')();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(elements.get('optimizationBox').textContent, /Status: Complete/);
+  assert.equal(activeIntervals.size, 0);
+  assert.equal(elements.get('optimizeAllBtn').disabled, false);
+  statusExtra = '';
+});
+
+test('an inventory response from before visibility invalidation cannot repopulate the cache', async () => {
+  deferApps = true;
+  const original = elements.get('refreshAppsBtn').dispatch('click');
+  document.hidden = true;
+  await documentListeners.get('visibilitychange')();
+  document.hidden = false;
+  const resumed = documentListeners.get('visibilitychange')();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  deferApps = false;
+  appListText = 'user|com.example.fresh\n';
+  for(const callback of pendingAppCallbacks.splice(0)) globalThis[callback](0, 'user|com.example.stale\n', '');
+  await Promise.all([original, resumed]);
+  assert.equal(elements.get('appSelect').value, 'com.example.fresh');
+  appListText = 'user|com.example.app\n';
+  await elements.get('refreshAppsBtn').dispatch('click');
+});
+
+test('full status refresh no longer repeats the two task-state bridge calls', async () => {
+  execLog.length = 0;
+  await elements.get('optimizeAllBtn').dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(execLog.filter(c => c.includes('status-quiet')).length, 1);
+  assert.equal(execLog.filter(c => c.includes('maintenance-status') || c.includes('app-opt-status')).length, 0);
+});
+
+test('malformed progress is an error rather than a completed task', async () => {
+  failProgress = true;
+  await elements.get('optimizeAllBtn').dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(elements.get('optimizationBox').textContent, /Invalid task progress response/);
+  assert.equal(activeIntervals.size, 0);
+  assert.equal(elements.get('optimizeAllBtn').disabled, false);
+  failProgress = false;
+});
+
+test('forced recompilation uses its explicit selected-app action', async () => {
+  execLog.length = 0;
+  await elements.get('recompileSelectedBtn').dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(execLog.filter(c => c.includes("optimize-app-force-async 'com.example.app'")).length, 1);
+  assert.equal(execLog.filter(c => c.includes('optimize-apps-async')).length, 0);
 });
 
 test('an unreadable task state during refresh keeps the dashboard usable', async () => {

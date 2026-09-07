@@ -795,6 +795,7 @@ write_status() {
   api_tmp="$ADDON_API_ENV.tmp.$$"
 
   {
+    write_env_pair "BOOT_ID" "$(current_boot_id)"
     write_env_pair "MODULE_ID" "p9pxl_supercharger"
     write_env_pair "VERSION" "$PROFILE_VERSION"
     write_env_pair "STATUS" "Manual Refresh"
@@ -1307,17 +1308,28 @@ run_full_maintenance() {
   release_locks
 }
 
-list_user_apps() {
+package_inventory() {
+  local output
   if command -v cmd >/dev/null 2>&1; then
-    cmd package list packages -3 2>/dev/null | sed 's/^package://' | grep -E '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+$' | sort -fu
-    return 0
+    output="$(cmd package list packages "$@" 2>&1)" || { echo "[FAIL] Package inventory: $output" >&2; return 1; }
+  elif command -v pm >/dev/null 2>&1; then
+    output="$(pm list packages "$@" 2>&1)" || { echo "[FAIL] Package inventory: $output" >&2; return 1; }
+  else
+    echo "[FAIL] Package manager command unavailable" >&2
+    return 1
   fi
-  if command -v pm >/dev/null 2>&1; then
-    pm list packages -3 2>/dev/null | sed 's/^package://' | grep -E '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+$' | sort -fu
-    return 0
-  fi
-  echo "package manager command unavailable"
-  return 1
+  printf '%s\n' "$output" | awk '
+    { sub(/\r$/, "") }
+    /^package:[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+$/ { sub(/^package:/, ""); print; next }
+    NF { invalid=1 }
+    END { if (invalid) { print "Invalid package inventory response" > "/dev/stderr"; exit 1 } }
+  '
+}
+
+list_user_apps() {
+  local apps
+  apps="$(package_inventory -3)" || return 1
+  printf '%s\n' "$apps" | sed '/^$/d' | LC_ALL=C sort -u
 }
 
 
@@ -1358,36 +1370,32 @@ is_blocked_core_package() {
 }
 
 list_safe_system_apps() {
-  safe_system_package_candidates | while read -r pkg; do
-    [ -n "$pkg" ] || continue
-    is_blocked_core_package "$pkg" && continue
-    if is_installed_package "$pkg"; then
-      echo "$pkg"
-    fi
-  done | sort -fu
+  local apps
+  apps="$(package_inventory --user 0)" || return 1
+  { safe_system_package_candidates; echo __INSTALLED__; printf '%s\n' "$apps"; } | awk '
+    $0 == "__INSTALLED__" { installed=1; next }
+    !installed { allowed[$0]=1; next }
+    NF && allowed[$0] && !seen[$0]++ { print }
+  ' | LC_ALL=C sort -u
 }
 
 list_optimizable_apps() {
-  tmp_seen="$MODDIR/.app_list_seen.$$"
-  : > "$tmp_seen" 2>/dev/null
-
-  list_user_apps 2>/dev/null | while read -r pkg; do
-    [ -n "$pkg" ] || continue
-    if ! grep -qx "$pkg" "$tmp_seen" 2>/dev/null; then
-      echo "$pkg" >> "$tmp_seen" 2>/dev/null
-      echo "user|$pkg"
-    fi
+  local user_apps system_apps
+  # Retain the existing scope: third-party inventory across users, safe names
+  # installed for user 0 (the previous pm path default). Never emit a partial list.
+  user_apps="$(list_user_apps)" || return 1
+  system_apps="$(list_safe_system_apps)" || return 1
+  {
+    printf '%s\n' "$user_apps"
+    echo __SYSTEM__
+    printf '%s\n' "$system_apps"
+  } | awk '
+    BEGIN { type="user" }
+    $0 == "__SYSTEM__" { type="system"; next }
+    NF && !seen[$0]++ { print type "|" $0 }
+  ' | while IFS='|' read -r type pkg; do
+    is_blocked_core_package "$pkg" || printf '%s|%s\n' "$type" "$pkg"
   done
-
-  list_safe_system_apps 2>/dev/null | while read -r pkg; do
-    [ -n "$pkg" ] || continue
-    if ! grep -qx "$pkg" "$tmp_seen" 2>/dev/null; then
-      echo "$pkg" >> "$tmp_seen" 2>/dev/null
-      echo "system|$pkg"
-    fi
-  done
-
-  rm -f "$tmp_seen" 2>/dev/null
 }
 
 is_installed_package() {
@@ -1399,115 +1407,127 @@ is_installed_package() {
   pm path "$pkg" >/dev/null 2>&1
 }
 
+prepare_art_compile() {
+  [ "${ART_HELP_READY:-0}" = 1 ] && return 0
+  ART_HELP_READY=1
+  ART_BACKGROUND=0
+  ART_VERBOSE=0
+  ART_FORCE_SUPPORTED=0
+  local help compile_help
+  help="$(cmd package help 2>/dev/null)" || help=""
+  compile_help="$(printf '%s\n' "$help" | awk '
+    /^  compile([[:space:]]|$)/ { active=1; next }
+    active && /^  [a-z][a-z-]*([[:space:]]|$)/ { exit }
+    active { print }
+  ')"
+  if printf '%s\n' "$compile_help" | grep -q 'PRIORITY_BACKGROUND' &&
+     printf '%s\n' "$compile_help" | grep -Eq '^[[:space:]]+-p[[:space:]]'; then ART_BACKGROUND=1; fi
+  printf '%s\n' "$compile_help" | grep -Eq '^[[:space:]]+-v[[:space:]]' && ART_VERBOSE=1
+  printf '%s\n' "$compile_help" | grep -Eq '^[[:space:]]+-f[[:space:]]' && ART_FORCE_SUPPORTED=1
+  return 0
+}
+
+compile_art_package() {
+  local pkg="$1"
+  local policy="${2:-incremental}"
+  local output rc
+  ART_RESULT=failed
+  case "$policy" in
+    incremental|force) ;;
+    *) echo "[FAIL] Unknown ART policy: $policy"; return 1 ;;
+  esac
+  prepare_art_compile
+  set -- package compile -m speed-profile
+  [ "$ART_BACKGROUND" = 1 ] && set -- "$@" -p PRIORITY_BACKGROUND
+  [ "$ART_VERBOSE" = 1 ] && set -- "$@" -v
+  if [ "$policy" = force ]; then
+    [ "$ART_FORCE_SUPPORTED" = 1 ] || { echo "[FAIL] Forced compilation is not advertised by this platform."; return 1; }
+    set -- "$@" -f
+  fi
+  output="$(cmd "$@" "$pkg" 2>&1)"
+  rc="$?"
+  printf '%s\n' "$output" | tail -n 40
+  if [ "$rc" -ne 0 ] || printf '%s\n' "$output" | grep -Eq '^[[:space:]]*(Failure([[:space:]:]|$)|Error:|Final Status: (FAILED|CANCELLED))'; then
+    echo "[FAIL] ART request failed for $pkg; no verification fallback was attempted."
+    return 1
+  fi
+  case "$output" in
+    *'Final Status: PERFORMED'*) ART_RESULT=performed ;;
+    *'Final Status: SKIPPED'*) ART_RESULT=skipped ;;
+    *) ART_RESULT=accepted ;;
+  esac
+  echo "[PASS] ART $ART_RESULT: $pkg"
+  [ "$ART_RESULT" = accepted ] && echo "The platform did not report whether compilation was needed."
+  return 0
+}
+
 optimize_one_app() {
+  local pkg="$1"
+  local policy="${2:-incremental}"
+  local rc
   acquire_lock_or_exit "$APP_LOCKDIR" "App optimization" || return 1
-  pkg="$1"
-  if ! is_installed_package "$pkg"; then
-    echo "[FAIL] Invalid or not installed package: $pkg"
-    log_maintenance "app optimization refused: invalid package $pkg"
+  if ! is_installed_package "$pkg" || is_blocked_core_package "$pkg"; then
+    echo "[FAIL] Invalid, unavailable, or protected package: $pkg"
     release_locks
     return 1
   fi
-  if is_blocked_core_package "$pkg"; then
-    echo "[FAIL] Refusing to optimize protected core package: $pkg"
-    echo "Reason: protected Android system service. Use listed safe system apps only."
-    log_maintenance "app optimization refused: protected core package $pkg"
-    release_locks
-    return 1
-  fi
-
-  echo "Optimizing app: $pkg"
-  echo "Mode: ART speed-profile"
-  echo "This is safe and reversible by Android. It may take a few seconds."
-  echo ""
-
-  if cmd package compile -m speed-profile -f "$pkg" 2>&1; then
-    echo "[PASS] ART optimization completed for $pkg"
-    log_maintenance "optimized app with ART speed-profile: $pkg"
-    release_locks
-    return 0
-  fi
-
-  echo "[WARN] speed-profile compile failed for $pkg"
-  echo "Trying fallback mode: verify"
-  if cmd package compile -m verify -f "$pkg" 2>&1; then
-    echo "[PASS] ART fallback verification completed for $pkg"
-    log_maintenance "optimized app with ART verify fallback: $pkg"
-    release_locks
-    return 0
-  fi
-
-  echo "[FAIL] App optimization failed for $pkg"
-  log_maintenance "app optimization failed: $pkg"
+  echo "ART $policy request: $pkg"
+  compile_art_package "$pkg" "$policy"
+  rc="$?"
+  log_maintenance "ART $policy: package=$pkg result=$ART_RESULT"
   release_locks
-  return 1
+  return "$rc"
 }
 
 optimize_package_list() {
-  label="$1"
-  apps="$2"
+  local label="$1"
+  local apps="$2"
+  local pkg total=0 performed=0 skipped=0 accepted=0 failed=0 protected=0
   acquire_lock_or_exit "$APP_LOCKDIR" "App optimization" || return 1
   echo "Optimizing $label"
-  echo "Mode: ART speed-profile with verify fallback"
-  echo "This does not change CPU, GPU, thermal, scheduler, charging, or kernel tuning."
-  echo "Core system services are intentionally excluded."
-  echo ""
-
-  if [ -z "$apps" ]; then
-    echo "[SKIP] No packages reported for $label."
-    log_maintenance "bulk app optimization skipped: no packages for $label"
-    release_locks
-    return 0
-  fi
-
-  tmp_summary="$MODDIR/.app_opt_summary.$$"
-  : > "$tmp_summary"
-  total=0
-  printf '%s\n' "$apps" | while read -r pkg; do
+  echo "Mode: incremental ART speed-profile; Android can skip unnecessary work."
+  prepare_art_compile
+  [ "$ART_BACKGROUND" = 1 ] && echo "Priority: background"
+  while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
-    is_blocked_core_package "$pkg" && { echo "[SKIP] $pkg: blocked core package"; echo skip >> "$tmp_summary"; continue; }
     total=$((total + 1))
-    echo "[$total] $pkg"
-    if cmd package compile -m speed-profile -f "$pkg" >/dev/null 2>&1; then
-      echo "  [PASS] speed-profile"
-      echo pass >> "$tmp_summary"
-    elif cmd package compile -m verify -f "$pkg" >/dev/null 2>&1; then
-      echo "  [PASS] verify fallback"
-      echo pass >> "$tmp_summary"
+    if is_blocked_core_package "$pkg"; then
+      protected=$((protected + 1))
+      echo "[SKIP] Protected core package: $pkg"
+    elif compile_art_package "$pkg" incremental; then
+      case "$ART_RESULT" in
+        performed) performed=$((performed + 1)) ;;
+        skipped) skipped=$((skipped + 1)) ;;
+        *) accepted=$((accepted + 1)) ;;
+      esac
     else
-      echo "  [WARN] compile failed or package refused"
-      echo fail >> "$tmp_summary"
+      failed=$((failed + 1))
     fi
-  done
-
-  processed="$(grep -c -E '^(pass|fail|skip)$' "$tmp_summary" 2>/dev/null)"
-  passed="$(grep -c '^pass$' "$tmp_summary" 2>/dev/null)"
-  failed="$(grep -c '^fail$' "$tmp_summary" 2>/dev/null)"
-  skipped="$(grep -c '^skip$' "$tmp_summary" 2>/dev/null)"
-  rm -f "$tmp_summary" 2>/dev/null
-  [ -z "$processed" ] && processed=0
-  [ -z "$passed" ] && passed=0
-  [ -z "$failed" ] && failed=0
-  [ -z "$skipped" ] && skipped=0
-  echo ""
-  echo "Finished. Packages processed: $processed | passed: $passed | warnings: $failed | skipped: $skipped"
-  echo "Some packages may refuse manual compile; that is normal on newer Android builds."
-  log_maintenance "bulk app optimization completed: label=$label processed=$processed passed=$passed warnings=$failed skipped=$skipped"
+  done <<EOF_APPS
+$apps
+EOF_APPS
+  echo "Finished. Packages: $total | performed: $performed | skipped: $skipped | accepted (detail unavailable): $accepted | failed: $failed | protected: $protected"
+  log_maintenance "ART batch: label=$label performed=$performed skipped=$skipped accepted=$accepted failed=$failed protected=$protected"
   release_locks
+  [ "$failed" -eq 0 ]
 }
 
 optimize_user_apps() {
-  apps="$(list_user_apps 2>/dev/null)"
+  local apps
+  apps="$(list_user_apps)" || return 1
   optimize_package_list "third-party user apps" "$apps"
 }
 
 optimize_safe_system_apps() {
-  apps="$(list_safe_system_apps 2>/dev/null)"
+  local apps
+  apps="$(list_safe_system_apps)" || return 1
   optimize_package_list "safe system apps" "$apps"
 }
 
 optimize_all_listed_apps() {
-  apps="$(list_optimizable_apps 2>/dev/null | cut -d'|' -f2- | sort -fu)"
+  local apps
+  apps="$(list_optimizable_apps)" || return 1
+  apps="$(printf '%s\n' "$apps" | cut -d'|' -f2- | LC_ALL=C sort -u)"
   optimize_package_list "listed apps and safe system apps" "$apps"
 }
 
@@ -1665,6 +1685,21 @@ maintenance_status() {
   read_task_status "$MAINT_STATE" "$MAINT_PIDFILE" "No maintenance task running" "$MAINT_TASK_LOG"
 }
 
+task_progress() {
+  local log_file
+  case "$1" in
+    apps) app_opt_status || return 1; log_file="$APP_OPT_LOG" ;;
+    maintenance) maintenance_status || return 1; log_file="$MAINT_TASK_LOG" ;;
+    *) echo "Unknown task type" >&2; return 1 ;;
+  esac
+  printf '\n__SUPERCHARGER_LOG__\n'
+  if [ -s "$log_file" ]; then
+    tail -c 16384 "$log_file" | tail -n 70
+  else
+    echo "No task output yet."
+  fi
+}
+
 maintenance_task_log() {
   if [ -s "$MAINT_TASK_LOG" ]; then
     tail -n 70 "$MAINT_TASK_LOG" 2>/dev/null
@@ -1717,6 +1752,9 @@ run_app_opt_background() {
     selected)
       start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
         write_app_opt_state "Optimizing selected app: $target" optimize_one_app "$target" ;;
+    selected-force)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Recompiling selected app: $target" optimize_one_app "$target" force ;;
     dexopt)
       start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
         write_app_opt_state "Android system dexopt job" run_system_dexopt_job ;;
@@ -1852,10 +1890,13 @@ case "$1" in
   optimize-apps-async) run_app_opt_background all ;;
   dexopt-job-async) run_app_opt_background dexopt ;;
   app-opt-status) app_opt_status ;;
+  app-opt-progress) task_progress apps ;;
+  maintenance-progress) task_progress maintenance ;;
+  optimize-app-force-async) run_app_opt_background selected-force "$2" ;;
   app-opt-log) app_opt_log ;;
   clear-maintenance) clear_maintenance_log ;;
   *)
-    echo "Usage: $0 {status|snapshot|processes|verify|reapply-safe|health|repair-dashboard|cleanup-updater|maintenance-all|storage|profiles|profile-status|thermal-detect|thermal-status|thermal-enable|thermal-disable|thermal-set-profile|thermal-profiles|set-profile|list-apps|list-user-apps|list-system-apps|optimize-app|optimize-user-apps|optimize-system-apps|optimize-apps|dexopt-job|optimize-app-async|optimize-system-apps-async|optimize-apps-async|dexopt-job-async|app-opt-status|app-opt-log|clear-maintenance|maintenance-all-async|maintenance-status|maintenance-log|gpu-scan}"
+    echo "Usage: $0 {status|snapshot|processes|verify|reapply-safe|health|repair-dashboard|cleanup-updater|maintenance-all|storage|profiles|profile-status|thermal-detect|thermal-status|thermal-enable|thermal-disable|thermal-set-profile|thermal-profiles|set-profile|list-apps|list-user-apps|list-system-apps|optimize-app|optimize-user-apps|optimize-system-apps|optimize-apps|dexopt-job|optimize-app-async|optimize-system-apps-async|optimize-apps-async|dexopt-job-async|app-opt-status|app-opt-log|app-opt-progress|maintenance-progress|optimize-app-force-async|clear-maintenance|maintenance-all-async|maintenance-status|maintenance-log|gpu-scan}"
     exit 1
     ;;
 esac

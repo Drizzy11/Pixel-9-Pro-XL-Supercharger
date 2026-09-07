@@ -179,6 +179,16 @@ It also exposes:
 - logs
 - support snapshot output
 
+App optimization is incremental by default: Android can skip work it considers
+unnecessary. Supercharger requests background priority when the platform supports
+it, and reports performed, skipped, or failed results when ART provides that detail.
+For an explicit retry, expand **Advanced: forced recompilation** and recompile only
+the selected app. This can take longer and generate extra heat.
+
+The app list is cached for up to one minute while using the dashboard; **Refresh
+app list** reloads it immediately. Task polling pauses while the dashboard is
+hidden and resumes when you return. The background task itself continues.
+
 ---
 
 ## Stability-First Design
