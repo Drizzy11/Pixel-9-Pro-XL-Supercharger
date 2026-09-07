@@ -1214,47 +1214,35 @@ lock_holder_alive() {
 acquire_lock_or_exit() {
   local lock_path="$1"
   local label="$2"
-  local reclaiming=0
-  if [ -d "$lock_path.reclaim" ]; then
-    echo "[SKIP] $label lock recovery is in progress. Try again shortly."
+  if ! command -v flock >/dev/null 2>&1; then
+    echo "[FAIL] $label: flock is unavailable; refusing unsafe lock recovery."
     return 1
-  fi
-  if mkdir "$lock_path" 2>/dev/null; then
-    # A reclaimer may have begun after the check above. This directory is still
-    # empty and ours, so withdraw before publishing an owner.
-    if [ -d "$lock_path.reclaim" ]; then
-      rmdir "$lock_path" 2>/dev/null
-      return 1
-    fi
-  else
-    # A creator may still be publishing its owner record. Missing/incomplete
-    # records are not proof of a stale lock; boot cleanup handles abandoned ones.
-    if [ ! -s "$lock_path/pid" ] || [ -z "$(sed -n '2p' "$lock_path/pid" 2>/dev/null)" ] || lock_holder_alive "$lock_path"; then
-      echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
-      return 1
-    fi
-    # Serialize recovery and recheck the owner: another contender may already
-    # have replaced the stale directory with a live lock while we inspected it.
-    mkdir "$lock_path.reclaim" 2>/dev/null || return 1
-    if [ ! -s "$lock_path/pid" ] || [ -z "$(sed -n '2p' "$lock_path/pid" 2>/dev/null)" ] || lock_holder_alive "$lock_path"; then
-      rmdir "$lock_path.reclaim" 2>/dev/null
-      return 1
-    fi
-    rm -rf "$lock_path" 2>/dev/null
-    if ! mkdir "$lock_path" 2>/dev/null; then
-      rmdir "$lock_path.reclaim" 2>/dev/null
-      echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
-      return 1
-    fi
-    reclaiming=1
   fi
   set_lock_owner_pid
-  if ! printf '%s\n%s\n' "$LOCK_OWNER_PID" "$(current_boot_id)" > "$lock_path/pid" 2>/dev/null; then
-    rm -rf "$lock_path" 2>/dev/null
-    [ "$reclaiming" = 1 ] && rmdir "$lock_path.reclaim" 2>/dev/null
+  # Keep a stable guard inode. The kernel releases this short-lived lock even
+  # after SIGKILL; there is no ownerless .reclaim directory to strand retries.
+  if ! (
+    flock -n 9 || {
+      echo "[SKIP] $label lock recovery is in progress. Try again shortly."
+      exit 1
+    }
+    if ! mkdir "$lock_path" 2>/dev/null; then
+      # A missing/incomplete record can belong to a creator still publishing it.
+      # Boot cleanup handles abandoned records whose ownership cannot be proven.
+      if [ ! -s "$lock_path/pid" ] || [ -z "$(sed -n '2p' "$lock_path/pid" 2>/dev/null)" ] || lock_holder_alive "$lock_path"; then
+        echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
+        exit 1
+      fi
+      rm -rf "$lock_path" 2>/dev/null
+      mkdir "$lock_path" 2>/dev/null || exit 1
+    fi
+    if ! printf '%s\n%s\n' "$LOCK_OWNER_PID" "$(current_boot_id)" > "$lock_path/pid" 2>/dev/null; then
+      rm -rf "$lock_path" 2>/dev/null
+      exit 1
+    fi
+  ) 9> "$lock_path.guard"; then
     return 1
   fi
-  [ "$reclaiming" = 1 ] && rmdir "$lock_path.reclaim" 2>/dev/null
   ACQUIRED_LOCKS="${ACQUIRED_LOCKS}${ACQUIRED_LOCKS:+ }$lock_path"
   trap 'release_locks' EXIT
   trap 'release_locks; exit 129' HUP

@@ -3,11 +3,17 @@
 ## Host checks without a rooted phone
 
 Run `python3 scripts/check.py` from a checkout with Python 3.10+, Node.js 24,
-and Bash. On Windows with Git for Windows:
+Bash, and Linux `flock`. On Windows with Git for Windows:
 
 ```powershell
 python scripts/check.py --shell 'C:\Program Files\Git\bin\bash.exe'
+wsl -d Ubuntu -- python3 -m unittest discover -s scripts -p 'test_*.py'
 ```
+
+Native Git Bash lacks `flock`, so Linux kernel-lock cases explicitly skip there.
+Run the full Python suite in WSL as shown above; do not count skips as device or
+Linux lock validation. CI requires the full Ubuntu checks and a separate native
+Windows process-containment job.
 
 The same runner is used by the branch/PR checks and release preflight. It checks
 each module shell script separately, JavaScript syntax, WebUI regressions, Python
@@ -18,6 +24,11 @@ Tests run these definitions in temporary directories with synthetic state files,
 real child processes and locks, and test doubles for Android operations. They do
 not execute the full installer, service, controller, or uninstaller. Tests never
 invoke ART compilation or write device tuning nodes.
+
+The harness contains each test process tree. Linux uses a dedicated process
+group; Windows assigns a waiting launcher to a Job Object before allowing Bash
+to start. Timeout or sandbox exit terminates descendants before directory cleanup.
+The Job Object also catches children orphaned by an intermediate parent exiting.
 
 ## Lifecycle regressions
 
@@ -30,7 +41,9 @@ invoke ART compilation or write device tuning nodes.
 - Five competing launches producing one operation and preserving its output,
   label, final state, and lock cleanup.
 - Incomplete owner records not being mistaken for stale locks.
-- Stale-lock recovery rechecking ownership before removing a directory.
+- Kernel-serialized stale-lock recovery keeping one owner across competing starts.
+- A killed reclaimer releasing its kernel guard so a retry succeeds immediately.
+- Legacy abandoned `.reclaim` directories not blocking new acquisition.
 - Failed workers releasing their locks so a retry can succeed.
 - Initialization failures returning an error without running the operation.
 - Interrupted tasks being reported without modifying shared state during a read.
@@ -40,8 +53,12 @@ Asynchronous tasks hold a lifecycle lock in addition to the operation's existing
 lock. The launcher reserves ownership before shared output is changed, and the
 worker publishes its initial state before launch acknowledgment. Only the worker
 writes task state afterward. Status readers render an interruption if a recorded
-worker is gone. Boot/install cleanup removes abandoned locks and recovery guards;
-an incomplete owner record is conservatively treated as busy until that cleanup.
+worker is gone. Acquisition and recovery use `flock` on a stable `.lock.guard` file;
+the kernel releases that guard when its process dies. Never delete the guard file
+during runtime, since another process may still hold its inode. Boot/install
+cleanup still handles abandoned task locks and legacy `.reclaim` directories;
+an incomplete task owner record is conservatively treated as busy until cleanup.
+See [the lock guard decision](decisions/001-kernel-lock-recovery-guard.md).
 
 ## Verified locally
 
@@ -52,7 +69,7 @@ completion, status overwrite, variable clobbering, stale-recovery race, and upda
 termination cases were reproduced against the original affected functions.
 
 The installation/update/uninstall follow-up adds nine tests in
-`scripts/test_install_lifecycle.py`, bringing the suite to 10 Node and 31 Python
+`scripts/test_install_lifecycle.py`, bringing that revision to 10 Node and 31 Python
 tests. These cover safe fresh-install defaults, all six persisted profile
 combinations, malformed values, stale lock cleanup, boot log rotation, device and
 Magisk gates, registry ownership, repeatable cleanup, and uninstall PID validation.
@@ -60,6 +77,12 @@ The reinstall lock leak, non-empty/missing registry exit status, and invalid PID
 cases failed before their corrections. Installer/uninstaller logic is exposed as
 named functions so tests can use temporary paths and stub process signals without
 running the full Android entry scripts.
+
+The PR-review fixes bring the suite to 10 Node and 37 Python tests. All 37 Python
+tests passed under Ubuntu/WSL without skips. Native Windows passed its applicable
+checks, including all three process-containment regressions, and explicitly
+skipped nine Linux-only cases. NUL-path tests reproduce extraction aliases for
+active thermal files, runtime logs, and blocked documentation files.
 
 The initial commit `ad752d8` also passed hosted
 [push checks](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/actions/runs/34074833370)

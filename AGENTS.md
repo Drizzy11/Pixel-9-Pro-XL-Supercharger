@@ -26,11 +26,17 @@ thermal limits, or override charging behavior.
 
 ## Validation and releases
 
-- Run `python3 scripts/check.py` (Python 3.10+, Node 24, Bash).
+- Run `python3 scripts/check.py` (Python 3.10+, Node 24, Bash, Linux `flock`).
 - Windows: `python scripts/check.py --shell 'C:\Program Files\Git\bin\bash.exe'`.
+  Kernel-lock tests skip in native Git Bash; also run the Python suite in WSL:
+  `wsl -d Ubuntu -- python3 -m unittest discover -s scripts -p 'test_*.py'`.
 - WebUI state changes need coverage in `scripts/webui_regression.test.mjs`.
 - Release validation changes need Python regression coverage in `scripts/test_*.py`.
 - Worker/lock/status lifecycle changes need `scripts/test_task_lifecycle.py` coverage.
+- Keep the `.lock.guard` files at stable paths; never unlink them during runtime.
+  Their kernel locks cover directory acquisition/recovery, not whole task execution.
+- Harness process cleanup must pass `scripts/test_shell_harness.py` on Linux and
+  native Windows; GitHub Actions includes both platforms for this regression.
 - Installer/uninstaller and profile persistence changes need `scripts/test_install_lifecycle.py` coverage.
 - Keep text LF. Keep temporary packages outside the source checkout; never ship
   logs, runtime state, docs, tests, or Git metadata in module ZIPs.

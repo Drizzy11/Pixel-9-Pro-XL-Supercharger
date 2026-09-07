@@ -9,6 +9,10 @@ from pathlib import Path
 
 
 RUNTIME_NAMES = {
+    ".maintenance.lock.guard",
+    ".app_optimization.lock.guard",
+    ".maintenance_task.lock.guard",
+    ".app_optimization_task.lock.guard",
     "current_profile",
     "thermal_current_profile",
     "thermal_control.env",
@@ -236,7 +240,7 @@ def check_source(root, profile):
 
 def safe_zip_path(name):
     # Check the raw archive name before normalization can hide an absolute path.
-    return bool(name) and "\\" not in name and ":" not in name and all(
+    return bool(name) and "\x00" not in name and "\\" not in name and ":" not in name and all(
         part not in ("", ".", "..") for part in name.removesuffix("/").split("/")
     )
 

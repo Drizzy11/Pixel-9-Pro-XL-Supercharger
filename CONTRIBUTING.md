@@ -47,7 +47,7 @@ Every change should hold to the behavior the module already promises:
 
 ## Running the checks
 
-Use Python 3.10+, Node.js 24, and Bash. The same entry point runs locally,
+Use Python 3.10+, Node.js 24, Bash, and Linux `flock`. The same entry point runs locally,
 on branch pushes and pull requests, and before release packaging:
 
 ```sh
@@ -58,7 +58,13 @@ On Windows, use your installed Python command and Git for Windows Bash:
 
 ```powershell
 python scripts/check.py --shell 'C:\Program Files\Git\bin\bash.exe'
+wsl -d Ubuntu -- python3 -m unittest discover -s scripts -p 'test_*.py'
 ```
+
+Native Git Bash runs the Windows-compatible checks and explicitly skips Linux
+kernel-lock tests. The WSL command above runs the full Python suite, including
+real `flock` behavior. CI runs the complete suite on Ubuntu and separately tests
+native Windows process containment.
 
 The checks parse every module shell script individually, check WebUI JavaScript
 syntax, run WebUI and Python regressions, parse JSON, and validate release source.

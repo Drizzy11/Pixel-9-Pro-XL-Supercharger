@@ -1,7 +1,11 @@
+import os
+import shutil
 import unittest
 
 from shell_harness import functions_from, run_shell
 
+
+HAS_FLOCK = os.name != "nt" and shutil.which("flock") is not None
 
 STATE_FUNCTIONS = [
     "write_env_pair", "env_value", "maintenance_status",
@@ -30,6 +34,8 @@ log_maintenance() { :; }
 
 class TaskLifecycleTests(unittest.TestCase):
     def assert_shell(self, body, names=STATE_FUNCTIONS):
+        if "acquire_lock_or_exit" in names and not HAS_FLOCK:
+            self.skipTest("Kernel flock tests require Linux/WSL; run them in CI or WSL")
         result = run_shell(functions_from("bin/supercharger_ctl.sh", names) + SANDBOX + body)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -56,6 +62,7 @@ write_app_opt_state done "App job" ""
 }
 ''')
 
+    @unittest.skipUnless(HAS_FLOCK, "Kernel flock tests require Linux/WSL")
     def test_fast_workers_keep_their_final_state(self):
         for kind, state, writer, start, operation in (
             ("maintenance", "MAINT_STATE", "write_maintenance_state", "run_maintenance_background", "run_full_maintenance"),
@@ -163,46 +170,64 @@ wait
 [ ! -e "$APP_OPT_PIDFILE" ] && [ ! -d "$APP_ASYNC_LOCKDIR" ] || exit 3
 ''', STATE_FUNCTIONS + BACKGROUND_FUNCTIONS + ["run_app_opt_background"])
 
-    def test_stale_lock_recovery_rechecks_the_owner(self):
-        source = functions_from("bin/supercharger_ctl.sh", BACKGROUND_FUNCTIONS)
-        source = source.replace("lock_holder_alive() {", "real_lock_holder_alive() {")
-        result = run_shell(source + SANDBOX + r'''
-await_file() {
-  for tick in $(seq 1 200); do
-    [ -f "$1" ] && return 0
-    sleep 0.02
-  done
-  return 1
-}
-lock_holder_alive() {
-  if [ ! -f "$contender.inspected" ]; then
-    touch "$contender.inspected"
-    if [ "$contender" = first ]; then await_file second.inspected
-    else await_file first.acquired
-    fi
-    return 1
-  fi
-  real_lock_holder_alive "$@"
-}
+    def test_legacy_recovery_guard_does_not_strand_retries(self):
+        self.assert_shell(r'''
+mkdir "$APP_LOCKDIR" "$APP_LOCKDIR.reclaim"
+printf '99999999\nprevious-boot\n' > "$APP_LOCKDIR/pid"
+acquire_lock_or_exit "$APP_LOCKDIR" test || exit 1
+release_locks
+acquire_lock_or_exit "$APP_LOCKDIR" test || exit 2
+release_locks
+''', BACKGROUND_FUNCTIONS)
+
+    def test_kernel_guard_is_released_when_reclaimer_dies(self):
+        self.assert_shell(r'''
 mkdir "$APP_LOCKDIR"
 printf '99999999\nprevious-boot\n' > "$APP_LOCKDIR/pid"
 (
-  contender=first
-  acquire_lock_or_exit "$APP_LOCKDIR" test || exit 1
-  touch first.acquired
-  await_file release-first
-) &
-(
-  contender=second
+  flock() {
+    command flock "$@" || return
+    touch kernel-guard-acquired
+    set_lock_owner_pid
+    kill -KILL "$LOCK_OWNER_PID"
+  }
   acquire_lock_or_exit "$APP_LOCKDIR" test
-  echo "$?" > second.result
-  touch release-first
-) &
+)
+[ "$?" = 1 ] && [ -f kernel-guard-acquired ] || exit 1
+acquire_lock_or_exit "$APP_LOCKDIR" test || exit 2
+release_locks
+''', BACKGROUND_FUNCTIONS)
+
+    def test_competing_stale_recovery_keeps_one_owner(self):
+        self.assert_shell(r'''
+mkdir "$APP_LOCKDIR"
+printf '99999999\nprevious-boot\n' > "$APP_LOCKDIR/pid"
+for attempt in 1 2 3 4 5; do
+  (
+    acquire_lock_or_exit "$APP_LOCKDIR" test
+    acquired="$?"
+    echo "$acquired" > "result.$attempt"
+    if [ "$acquired" = 0 ]; then
+      echo won >> winners
+      for tick in $(seq 1 200); do
+        [ -f release-owner ] && exit 0
+        sleep 0.02
+      done
+      exit 1
+    fi
+  ) > "attempt.$attempt" &
+done
+for tick in $(seq 1 200); do
+  [ -f winners ] && [ "$(find . -name 'result.*' | wc -l | tr -d ' ')" = 5 ] && break
+  sleep 0.02
+done
+[ "$(find . -name 'result.*' | wc -l | tr -d ' ')" = 5 ] || exit 3
+[ "$(wc -l < winners | tr -d ' ')" = 1 ] || exit 1
+: > release-owner
 wait
-[ -f first.acquired ] || exit 1
-[ "$(cat second.result)" != 0 ] || { echo 'Reclaimed a new live owner using a stale observation'; exit 2; }
-''')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+[ "$(wc -l < winners | tr -d ' ')" = 1 ] || exit 4
+[ ! -d "$APP_LOCKDIR" ] || exit 2
+''', BACKGROUND_FUNCTIONS)
 
     def test_updater_exits_on_termination_signals(self):
         source = functions_from("service.sh", ["start_temp_dashboard_updater"])

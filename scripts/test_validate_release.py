@@ -60,6 +60,14 @@ class ReleaseValidationTests(unittest.TestCase):
             path = self.package(extras=[("module.prop", b"different", None)])
         self.assertTrue(any("duplicate package path" in error for error in check_zip(path, "main")))
 
+    def test_nul_cannot_hide_a_forbidden_extraction_path(self):
+        for name in ("system/vendor/etc/thermal_info_config.json", "maintenance.log", "README.md"):
+            with self.subTest(name=name):
+                path = self.package(extras=[(name + "\x00ignored", b"{}", stat.S_IFREG | 0o644)])
+                with zipfile.ZipFile(path) as archive:
+                    self.assertEqual(archive.infolist()[-1].filename, name)
+                self.assertTrue(any("unsafe package path" in error for error in check_zip(path, "main")))
+
     def test_symlinks_and_special_permissions(self):
         for mode in (stat.S_IFLNK | 0o755, stat.S_IFREG | 0o4755):
             with self.subTest(mode=oct(mode)):

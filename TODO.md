@@ -28,8 +28,12 @@
   overlaps completion. Only the worker writes its lifecycle state.
 - [x] Serialize asynchronous launches before changing logs/state, preserve job
   labels across operation calls, and report initialization failures.
-- [x] Protect incomplete lock records and recheck ownership during serialized
-  stale-lock recovery. Clear abandoned recovery guards at boot/install.
+- [x] Protect incomplete lock records and serialize acquisition/recovery with a
+  kernel-managed `flock` guard that releases automatically when its owner dies.
+- [x] Terminate complete test process trees on timeout and sandbox exit, using
+  Windows Job Objects or POSIX process groups, with regressions on both platforms.
+- [x] Reject NUL bytes in ZIP paths before checking forbidden runtime/thermal
+  entries, with tests for the effective extraction name.
 - [x] Exit the dashboard updater on termination signals and verify HUP/TERM
   cleanup in subprocess tests.
 
