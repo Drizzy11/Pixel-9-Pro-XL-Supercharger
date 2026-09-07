@@ -94,3 +94,19 @@ touching `service.sh` or the profiles, please also report:
 Use the [bug report template](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/issues/new?template=bug_report.yml)
 and attach a support snapshot from the WebUI **Support** tab. Security issues go
 through [SECURITY.md](SECURITY.md) instead, not a public issue.
+
+## Public website
+
+The static English/Spanish website lives in `site/`, separately from `webroot/`.
+Use Python 3.10+ and Node 24:
+
+```sh
+python3 scripts/build_site.py
+python3 scripts/check_site.py
+python3 scripts/serve_site.py
+```
+
+Use `python3 scripts/build_site.py --refresh` to refresh public release data.
+See [website development](docs/WEBSITE.md) for generated files, translations,
+image preparation, browser checks, and GitHub Pages deployment. Website changes
+need browser verification; sample dashboard values are not device evidence.
