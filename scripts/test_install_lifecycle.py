@@ -57,7 +57,7 @@ for performance in active_smooth performance_gaming; do
     [ "$(env_value THERMAL_CONTROL_ENABLED "$MODPATH/thermal_control.env")" = 0 ] || exit 4
   done
 done
-''', controller=["ensure_persist_state_dir", "save_selected_profile", "save_integrated_thermal_profile"])
+''', controller=["ensure_persist_state_dir", "save_selected_profile", "save_integrated_thermal_profile", "write_selection_file", "commit_state_file"])
 
     def test_failed_state_creation_is_not_a_successful_install(self):
         for name in ("current_profile", "thermal_current_profile", "thermal_control.env", "module_status.env", "debug.log"):

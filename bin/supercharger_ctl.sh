@@ -63,7 +63,8 @@ set_module_description() {
 
 write_env_pair() {
   local key="$1"
-  local value="$(printf "%s" "$2" | tr -d '
+  local value
+  value="$(printf "%s" "$2" | tr -d '
 ')"
   printf '%s="%s"
 ' "$key" "$value"
@@ -108,16 +109,18 @@ detect_root_env() {
 }
 
 get_battery_temp() {
+  local raw
   raw="$(safe_read /sys/class/power_supply/battery/temp)"
+  local sign=""
+  case "$raw" in -*) sign="-"; raw="${raw#-}" ;; esac
   case "$raw" in
-    ''|*[!0-9-]*) echo "Temp Unavailable" ;;
-    *)
-      whole=$((raw / 10))
-      frac=$((raw % 10))
-      [ "$frac" -lt 0 ] && frac=$((frac * -1))
-      echo "${whole}.${frac}C"
-      ;;
+    ''|*[!0-9]*) echo "Temp Unavailable"; return 0 ;;
   esac
+  while [ "${raw#0}" != "$raw" ]; do raw="${raw#0}"; done
+  raw="${raw:-0}"
+  [ "${#raw}" -le 9 ] || { echo "Temp Unavailable"; return 0; }
+  [ "$raw" = 0 ] && sign=""
+  echo "${sign}$((raw / 10)).$((raw % 10))C"
 }
 
 read_selected_profile() {
@@ -136,13 +139,31 @@ ensure_persist_state_dir() {
   return 0
 }
 
+# Commit complete state records without replacing a destination directory.
+commit_state_file() {
+  local temporary="$1"
+  local destination="$2"
+  if [ ! -d "$destination" ] && chmod 0644 "$temporary" 2>/dev/null && mv -f "$temporary" "$destination" 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$temporary" 2>/dev/null
+  return 1
+}
+
+write_selection_file() {
+  local destination="$1"
+  local selection="$2"
+  local temporary="$destination.tmp.$$"
+  printf '%s\n' "$selection" > "$temporary" 2>/dev/null || { rm -f "$temporary" 2>/dev/null; return 1; }
+  commit_state_file "$temporary" "$destination"
+}
+
 save_selected_profile() {
-  profile_value="$1"
-  echo "$profile_value" > "$PROFILE_FILE" 2>/dev/null || return 1
-  chmod 0644 "$PROFILE_FILE" 2>/dev/null || true
-  if ensure_persist_state_dir; then
-    echo "$profile_value" > "$PERSIST_PROFILE_FILE" 2>/dev/null || true
-    chmod 0644 "$PERSIST_PROFILE_FILE" 2>/dev/null || true
+  local profile_value="$1"
+  write_selection_file "$PROFILE_FILE" "$profile_value" || { echo "Could not save the module profile." >&2; return 1; }
+  if ! ensure_persist_state_dir || ! write_selection_file "$PERSIST_PROFILE_FILE" "$profile_value"; then
+    echo "Profile saved locally, but persistence across module updates failed. Retry before updating." >&2
+    return 1
   fi
   return 0
 }
@@ -204,20 +225,17 @@ read_integrated_thermal_profile() {
 }
 
 save_integrated_thermal_profile() {
-  thermal_value="$1"
-  echo "$thermal_value" > "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null || true
-  chmod 0644 "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null || true
-  if ensure_persist_state_dir; then
-    echo "$thermal_value" > "$PERSIST_THERMAL_PROFILE_FILE" 2>/dev/null || true
-    chmod 0644 "$PERSIST_THERMAL_PROFILE_FILE" 2>/dev/null || true
-  fi
+  local thermal_value="$1"
+  write_selection_file "$INTEGRATED_THERMAL_PROFILE_FILE" "$thermal_value" || return 1
+  ensure_persist_state_dir && write_selection_file "$PERSIST_THERMAL_PROFILE_FILE" "$thermal_value"
 }
 
 write_integrated_thermal_state() {
-  enabled="$1"
-  profile="$2"
-  reboot="$3"
-  message="$4"
+  local enabled="$1"
+  local profile="$2"
+  local reboot="$3"
+  local message="$4"
+  local temporary="$INTEGRATED_THERMAL_STATE.tmp.$$"
   valid_integrated_thermal_profile "$profile" || profile="balanced"
   mkdir -p "$MODDIR" 2>/dev/null
   {
@@ -230,8 +248,8 @@ write_integrated_thermal_state() {
     write_env_pair "THERMAL_CONTROL_REBOOT_REQUIRED" "$reboot"
     write_env_pair "THERMAL_CONTROL_MESSAGE" "$message"
     write_env_pair "LAST_UPDATED" "$(date)"
-  } > "$INTEGRATED_THERMAL_STATE" 2>/dev/null
-  chmod 0644 "$INTEGRATED_THERMAL_STATE" 2>/dev/null
+  } > "$temporary" 2>/dev/null || { rm -f "$temporary" 2>/dev/null; return 1; }
+  commit_state_file "$temporary" "$INTEGRATED_THERMAL_STATE" || return 1
   save_integrated_thermal_profile "$profile"
 }
 
@@ -245,11 +263,12 @@ ensure_integrated_thermal_state() {
 remove_integrated_thermal_overlay() {
   rm -f "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json" \
         "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json" \
-        "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_charge.json" 2>/dev/null || true
+        "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_charge.json" 2>/dev/null || return 1
   rmdir "$INTEGRATED_THERMAL_ACTIVE_DIR" "$MODDIR/system/vendor" "$MODDIR/system" 2>/dev/null || true
 }
 
 apply_integrated_thermal_profile() {
+  local request_tmp="$THERMAL_REQUEST_ENV.tmp.$$"
   profile="$1"
   source="${2:-integrated}"
   fail_message=""
@@ -272,15 +291,18 @@ apply_integrated_thermal_profile() {
   fail_apply() {
     fail_message="$1"
     echo "$fail_message"
-    remove_integrated_thermal_overlay
-    write_integrated_thermal_state 0 "$profile" 1 "Thermal Control was turned off after a failed profile apply. Restart before trying again."
+    if remove_integrated_thermal_overlay; then
+      write_integrated_thermal_state 0 "$profile" 1 "Thermal overlay files removed after a failed apply. Restart before trying again." || echo "Could not save Thermal Control state. Check module storage before restarting."
+    else
+      echo "Could not remove the incomplete thermal overlay. Disable the module in your root manager before restarting."
+    fi
     return 1
   }
 
   cp -f "$srcdir/thermal_info_config.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json" 2>/dev/null || fail_apply "Could not copy thermal_info_config.json." || return 1
   cp -f "$srcdir/thermal_info_config_lpm.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json" 2>/dev/null || fail_apply "Could not copy thermal_info_config_lpm.json." || return 1
-  rm -f "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_charge.json" 2>/dev/null || true
-  chmod 0644 "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json" 2>/dev/null || true
+  rm -f "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_charge.json" 2>/dev/null || { fail_apply "Could not remove the obsolete charge overlay."; return 1; }
+  chmod 0644 "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json" 2>/dev/null || { fail_apply "Could not set thermal overlay permissions."; return 1; }
 
   if ! cmp -s "$srcdir/thermal_info_config.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json"; then
     fail_apply "Thermal profile verification failed: thermal_info_config.json"
@@ -298,12 +320,15 @@ apply_integrated_thermal_profile() {
         write_env_pair "SUPERCHARGER_THERMAL_PROFILE_REQUEST" "$profile"
         write_env_pair "THERMAL_REQUEST_SOURCE" "integrated"
         write_env_pair "LAST_UPDATED" "$(date)"
-      } > "$THERMAL_REQUEST_ENV" 2>/dev/null
-      chmod 0644 "$THERMAL_REQUEST_ENV" 2>/dev/null
+      } > "$request_tmp" 2>/dev/null || { rm -f "$request_tmp" 2>/dev/null; fail_apply "Could not write the thermal profile request."; return 1; }
+      commit_state_file "$request_tmp" "$THERMAL_REQUEST_ENV" || { fail_apply "Could not save the thermal profile request."; return 1; }
+    else
+      fail_apply "Could not prepare the thermal profile registry."
+      return 1
     fi
   fi
 
-  write_integrated_thermal_state 1 "$profile" 1 "Thermal Control enabled. Restart to apply the selected thermal profile."
+  write_integrated_thermal_state 1 "$profile" 1 "Thermal Control enabled. Restart to apply the selected thermal profile." || { fail_apply "Could not save the thermal selection and state."; return 1; }
   echo "Thermal Control: enabled"
   echo "Thermal profile: $(integrated_thermal_label_for "$profile")"
   echo "Restart required to apply the selected thermal profile."
@@ -311,8 +336,8 @@ apply_integrated_thermal_profile() {
 
 disable_integrated_thermal_control() {
   profile="$(read_integrated_thermal_profile)"
-  remove_integrated_thermal_overlay
-  write_integrated_thermal_state 0 "$profile" 1 "Thermal Control disabled. Restart to return to ROM/vendor thermal behavior."
+  remove_integrated_thermal_overlay || { echo "Could not remove thermal overlay files. Disable the module in your root manager before restarting."; return 1; }
+  write_integrated_thermal_state 0 "$profile" 1 "Thermal Control disabled. Restart to return to ROM/vendor thermal behavior." || { echo "Thermal overlay files removed, but saving the state failed. Check module storage and retry."; return 1; }
   echo "Thermal Control: disabled"
   echo "Thermal overlay files removed from the module."
   echo "Restart required to return to ROM/vendor thermal behavior."
@@ -343,7 +368,6 @@ integrated_thermal_status() {
 
 adopt_thermal_control_selection() {
   local request_env="$THERMAL_REQUEST_ENV"
-  local status_env="$THERMAL_REGISTRY_DIR/status.env"
   local source=""
   local requested=""
   local mapped=""
@@ -734,6 +758,7 @@ physical_block_list() {
 }
 
 write_status() {
+  local status_output
   ensure_integrated_thermal_state
   adopt_thermal_control_selection
   selected_profile="$(read_selected_profile)"
@@ -767,8 +792,9 @@ write_status() {
   updater_status="${updater_info#*|}"
 
   # Status reads must never rewrite a worker's newer completion record.
-  local maintenance_snapshot="$(maintenance_status)"
-  local app_snapshot="$(app_opt_status)"
+  local maintenance_snapshot app_snapshot
+  maintenance_snapshot="$(maintenance_status)"
+  app_snapshot="$(app_opt_status)"
   maintenance_task_state="$(printf '%s\n' "$maintenance_snapshot" | env_value STATE -)"
   maintenance_task_label="$(printf '%s\n' "$maintenance_snapshot" | env_value LABEL -)"
   maintenance_task_pid="$(printf '%s\n' "$maintenance_snapshot" | env_value PID -)"
@@ -835,9 +861,9 @@ write_status() {
     write_env_pair "LOG_FILE" "$DEBUG_LOG"
     write_env_pair "SNAPSHOT_FILE" "$SNAPSHOT_FILE"
     write_env_pair "LAST_UPDATED" "$(date)"
-  } > "$status_tmp"
-  chmod 0644 "$status_tmp" 2>/dev/null
-  mv -f "$status_tmp" "$STATUS_ENV" 2>/dev/null
+  } > "$status_tmp" || { rm -f "$status_tmp" 2>/dev/null; return 1; }
+  status_output="$(cat "$status_tmp")" || { rm -f "$status_tmp" 2>/dev/null; return 1; }
+  commit_state_file "$status_tmp" "$STATUS_ENV" || return 1
 
   {
     write_env_pair "API_VERSION" "1"
@@ -859,19 +885,21 @@ write_status() {
     write_env_pair "THERMAL_ADDON_VERSION" "$addon_version"
     integrated_thermal_status
     write_env_pair "LAST_UPDATED" "$(date)"
-  } > "$api_tmp"
-  chmod 0644 "$api_tmp" 2>/dev/null
-  mv -f "$api_tmp" "$ADDON_API_ENV" 2>/dev/null
+  } > "$api_tmp" || { rm -f "$api_tmp" 2>/dev/null; return 1; }
+  commit_state_file "$api_tmp" "$ADDON_API_ENV" || return 1
 
   [ "$STATUS_LOG_QUIET" = "1" ] || log_maintenance "status refresh completed"
-  cat "$STATUS_ENV" 2>/dev/null
+  # The temperature updater can replace STATUS_ENV concurrently. Return this
+  # request's task-aware snapshot, never a later updater record without tasks.
+  printf '%s\n' "$status_output"
 }
 
 make_snapshot() {
+  local snapshot_tmp="$SNAPSHOT_FILE.tmp.$$"
   selected_profile="$(read_selected_profile)"
   profile_label="$(profile_label_for "$selected_profile")"
   thermal_request="$(thermal_profile_for "$selected_profile")"
-  write_status >/dev/null 2>&1
+  write_status >/dev/null 2>&1 || return 1
   block_info="$(physical_block_list)"
   block_list="${block_info%%|*}"
   case "$block_list" in
@@ -917,8 +945,9 @@ make_snapshot() {
     echo "Thermal Addon: $(detect_thermal_addon)"
     echo ""
     echo "Recent Debug Log:"
-    tail -n 120 "$DEBUG_LOG" 2>/dev/null
-  } > "$SNAPSHOT_FILE"
+    if [ -r "$DEBUG_LOG" ]; then tail -n 120 "$DEBUG_LOG" 2>/dev/null; else echo "Debug log unavailable"; fi
+  } > "$snapshot_tmp" || { rm -f "$snapshot_tmp" 2>/dev/null; return 1; }
+  commit_state_file "$snapshot_tmp" "$SNAPSHOT_FILE" || return 1
   log_maintenance "support snapshot generated"
   echo "$SNAPSHOT_FILE"
 }
@@ -1137,13 +1166,13 @@ module_health_check() {
 }
 
 repair_dashboard_files() {
-  touch "$STATUS_ENV" "$ADDON_API_ENV" "$SNAPSHOT_FILE" "$MAINTENANCE_LOG" "$DEBUG_LOG" "$MODDIR/debug.previous.log" 2>/dev/null
-  chmod 0755 "$MODDIR/bin" "$CTL" "$MODDIR/service.sh" 2>/dev/null
-  chmod 0644 "$STATUS_ENV" "$ADDON_API_ENV" "$SNAPSHOT_FILE" "$MAINTENANCE_LOG" "$DEBUG_LOG" "$MODDIR/debug.previous.log" "$PROP_FILE" 2>/dev/null
-  write_status >/dev/null 2>&1
+  touch "$STATUS_ENV" "$ADDON_API_ENV" "$SNAPSHOT_FILE" "$MAINTENANCE_LOG" "$DEBUG_LOG" "$MODDIR/debug.previous.log" 2>/dev/null || { echo "[FAIL] Could not prepare dashboard files"; return 1; }
+  chmod 0755 "$MODDIR/bin" "$CTL" "$MODDIR/service.sh" 2>/dev/null || { echo "[FAIL] Could not repair executable permissions"; return 1; }
+  chmod 0644 "$STATUS_ENV" "$ADDON_API_ENV" "$SNAPSHOT_FILE" "$MAINTENANCE_LOG" "$DEBUG_LOG" "$MODDIR/debug.previous.log" "$PROP_FILE" 2>/dev/null || { echo "[FAIL] Could not repair file permissions"; return 1; }
+  write_status >/dev/null 2>&1 || { echo "[FAIL] Could not refresh dashboard/API state"; return 1; }
 
-  health="$(grep '^HEALTH=' "$STATUS_ENV" 2>/dev/null | cut -d= -f2- | tr -d "'")"
-  temp="$(grep '^BATTERY_TEMP=' "$STATUS_ENV" 2>/dev/null | cut -d= -f2- | tr -d "'")"
+  health="$(env_value HEALTH "$STATUS_ENV")"
+  temp="$(env_value BATTERY_TEMP "$STATUS_ENV")"
   [ -z "$health" ] && health="unknown"
   [ -z "$temp" ] && temp="Temp Unavailable"
   if [ "$health" = "pass" ]; then
@@ -1155,6 +1184,7 @@ repair_dashboard_files() {
     echo "[PASS] module.prop description repaired"
   else
     echo "[WARN] module.prop description could not be updated"
+    return 1
   fi
   echo "[PASS] module_status.env refreshed"
   echo "[PASS] addon_api.env refreshed"
@@ -1171,12 +1201,12 @@ cleanup_updater_state() {
       echo "[PASS] updater is running; no cleanup needed"
       ;;
     *)
-      rm -f "$PIDFILE" 2>/dev/null
-      rm -rf "$LOCKDIR" 2>/dev/null
+      rm -f "$PIDFILE" 2>/dev/null || return 1
+      rm -rf "$LOCKDIR" 2>/dev/null || return 1
       echo "[PASS] stale/invalid updater state cleaned"
       ;;
   esac
-  write_status >/dev/null 2>&1
+  write_status >/dev/null 2>&1 || return 1
   echo "Dashboard updater after cleanup: $(updater_state)"
   log_maintenance "dashboard updater state cleanup completed"
 }
@@ -1262,6 +1292,8 @@ release_locks() {
 
 
 run_full_maintenance() {
+  local maintenance_failed=0
+  local snapshot_path
   acquire_lock_or_exit "$MAINT_LOCKDIR" "One-tap maintenance" || return 1
   echo "Supercharger one-tap maintenance"
   echo "Generated: $(date)"
@@ -1271,11 +1303,11 @@ run_full_maintenance() {
   echo ""
 
   echo "[1/6] Repair dashboard/API"
-  repair_dashboard_files
+  repair_dashboard_files || maintenance_failed=1
   echo ""
 
   echo "[2/6] Clean stale updater state"
-  cleanup_updater_state
+  cleanup_updater_state || maintenance_failed=1
   echo ""
 
   echo "[3/6] Refresh status"
@@ -1283,7 +1315,8 @@ run_full_maintenance() {
     echo "[PASS] module_status.env refreshed"
     echo "[PASS] addon_api.env refreshed"
   else
-    echo "[WARN] status refresh returned a warning"
+    echo "[FAIL] status refresh failed"
+    maintenance_failed=1
   fi
   echo ""
 
@@ -1292,20 +1325,26 @@ run_full_maintenance() {
   echo ""
 
   echo "[5/6] Generate support snapshot"
-  snapshot_path="$(make_snapshot 2>/dev/null)"
-  if [ -n "$snapshot_path" ] && [ -f "$snapshot_path" ]; then
+  if snapshot_path="$(make_snapshot 2>/dev/null)" && [ -n "$snapshot_path" ] && [ -f "$snapshot_path" ]; then
     echo "[PASS] support snapshot generated: $snapshot_path"
   else
-    echo "[WARN] support snapshot could not be confirmed"
+    echo "[FAIL] support snapshot could not be generated"
+    maintenance_failed=1
   fi
   echo ""
 
   echo "[6/6] Check running processes"
   check_processes
   echo ""
+  release_locks
+  if [ "$maintenance_failed" -ne 0 ]; then
+    echo "[FAIL] Maintenance finished with incomplete steps. Review the output and retry."
+    log_maintenance "one-tap maintenance failed"
+    return 1
+  fi
   echo "Done. One-tap maintenance completed."
   log_maintenance "one-tap maintenance completed"
-  release_locks
+  return 0
 }
 
 package_inventory() {
@@ -1638,7 +1677,7 @@ start_background_task() {
     echo "Finished: $(date)" >> "$task_log"
     if [ "$task_rc" -eq 0 ]; then
       echo "Result: completed" >> "$task_log"
-      "$task_writer" done "$task_label" ""
+      "$task_writer" "done" "$task_label" ""
     else
       echo "Result: completed with warnings or failure" >> "$task_log"
       "$task_writer" failed "$task_label" ""

@@ -16,7 +16,8 @@ def run_contained(command, *, cwd, timeout):
     job = None
     process = None
     launch_input = None
-    options = {"cwd": cwd, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
+    options = {"cwd": cwd, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+               "text": True, "encoding": "utf-8", "errors": "replace"}
     if os.name == "nt":
         from windows_job import WindowsJob
         job = WindowsJob()

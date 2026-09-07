@@ -509,9 +509,11 @@ function startTaskPolling(kind, label){
       resumeActiveTaskPolling();
     } catch(e){
       if(document.hidden || generation !== poller.generation) return;
-      stopTimer(kind);
-      setActionsBusy(false);
-      $(box).textContent = `Could not read task progress:\n${e.message}`;
+      // A bridge error says nothing about whether the worker stopped. Retain
+      // the normal polling interval and prevent overlapping commands on retry.
+      if(poller.timer === null) poller.timer = setInterval(poll, TASK_POLL_MS);
+      setActionsBusy(true);
+      $(box).textContent = `Could not read task progress:\n${e.message}\nRetrying…`;
     } finally { poller.inFlight = false; }
   };
   poller.timer = setInterval(poll, TASK_POLL_MS);
@@ -520,6 +522,19 @@ function startTaskPolling(kind, label){
 
 function startOptimizationPolling(label){ startTaskPolling('app', label); }
 function startMaintenancePolling(label){ startTaskPolling('maintenance', label); }
+
+async function reconcileActionState(){
+  try {
+    await refreshStatus();
+    statusReady = true;
+  } catch(e){
+    statusReady = false;
+    setText('#statusValue', 'Unavailable');
+    setText('#statusSub', e.message);
+  }
+  setActionsBusy(anyTaskRunning());
+  if(statusReady) resumeActiveTaskPolling();
+}
 
 async function runOptimization(label, startCmd){
   if(commandBusy) return;
@@ -531,8 +546,7 @@ async function runOptimization(label, startCmd){
     $('#optimizationBox').textContent = out.trim() || 'Started. Watching progress…';
     startOptimizationPolling(label);
   } catch(e){
-    setActionsBusy(false);
-    await refreshStatus().catch(() => {});
+    await reconcileActionState();
     $('#optimizationBox').textContent = `Could not start optimization:\n${e.message}`;
   }
 }
@@ -547,8 +561,7 @@ async function runMaintenance(label, startCmd){
     $('#maintenanceBox').textContent = out.trim() || 'Started. Watching progress…';
     startMaintenancePolling(label);
   } catch(e){
-    setActionsBusy(false);
-    await refreshStatus().catch(() => {});
+    await reconcileActionState();
     $('#maintenanceBox').textContent = `Could not start maintenance:\n${e.message}`;
   }
 }
@@ -560,11 +573,10 @@ async function setProfile(profile){
   try {
     const out = await sh(`sh '${CTL}' set-profile ${shellQuote(profile)}`);
     $('#profileBox').textContent = out.trim() || 'Profile saved. Restart before judging performance.';
-    await refreshStatus();
   } catch(e){
     $('#profileBox').textContent = `Could not update profile:\n${e.message}`;
   } finally {
-    setActionsBusy(false);
+    await reconcileActionState();
   }
 }
 
@@ -575,11 +587,10 @@ async function runThermal(command, label){
   try {
     const out = await sh(`sh '${CTL}' ${command}`);
     $('#thermalBox').textContent = out.trim() || 'Thermal setting saved. Restart to apply it fully.';
-    await refreshStatus();
   } catch(e){
     $('#thermalBox').textContent = `Could not update Thermal Control:\n${e.message}`;
   } finally {
-    setActionsBusy(false);
+    await reconcileActionState();
   }
 }
 

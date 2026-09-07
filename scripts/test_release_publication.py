@@ -44,6 +44,16 @@ gh() {
 
 
 class ReleasePublicationTests(unittest.TestCase):
+    def test_every_version_suffix_stays_out_of_the_stable_channel(self):
+        text = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        step = text.split("      - name: Resolve release metadata\n", 1)[1].split("      - uses:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        for suffix, expected in (("", "false"), ("-beta.1", "true"), ("-preview.1", "true")):
+            with self.subTest(suffix=suffix):
+                fixture = f"GITHUB_REF_NAME=v2.6.8{suffix}\nGITHUB_OUTPUT=outputs\nprintf 'version=%s\\n' \"$GITHUB_REF_NAME\" > module.prop\n"
+                result = run_shell(fixture + script + f"\ngrep -q '^is_prerelease={expected}$' outputs\n")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def check(self, mode, assertion, mutate=""):
         script = FIXTURE + f"\nMODE={mode}\n" + mutate
         # Run the actual workflow block in a subshell because its successful

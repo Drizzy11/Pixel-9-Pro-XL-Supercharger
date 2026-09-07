@@ -113,6 +113,8 @@ let appOptState = 'done';
 let appOptLabel = 'Optimizing com.example.app';
 let deferProgress = false;
 let failProgress = false;
+let failStart = false;
+let failProfile = false;
 let appListText = 'user|com.example.app\n';
 let deferApps = false;
 const pendingAppCallbacks = [];
@@ -151,7 +153,12 @@ globalThis.ksu = {
     else if (command.includes('thermal-detect')) stdout = '';
     else if (command.includes('list-apps') && failAppList) { errno = 1; stderr = 'package manager unavailable'; }
     else if (command.includes('list-apps')) stdout = appListText;
+    else if (command.includes('optimize-apps-async') && failStart) { errno = 1; stderr = 'already running'; }
     else if (command.includes('optimize-apps-async')) stdout = 'Started';
+    else if (command.includes('set-profile') && failProfile) {
+      statusExtra = 'SELECTED_PROFILE=performance_gaming\nPROFILE_LABEL=Performance / Gaming';
+      errno = 1; stderr = 'Profile saved locally, but persistence failed';
+    }
     else if (logFile) stdout = `${logFile[1]} contents`;
     if (logFile && deferLogs) { pendingLogCallbacks.push({ callbackName, stdout }); return; }
     queueMicrotask(() => globalThis[callbackName](errno, stdout, stderr));
@@ -346,9 +353,32 @@ test('malformed progress is an error rather than a completed task', async () => 
   await elements.get('optimizeAllBtn').dispatch('click');
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.match(elements.get('optimizationBox').textContent, /Invalid task progress response/);
+  assert.equal(activeIntervals.size, 1);
+  assert.equal(elements.get('optimizeAllBtn').disabled, true);
+  const before = execLog.filter(c => c.includes('optimize-apps-async')).length;
+  await elements.get('optimizeAllBtn').dispatch('click');
+  assert.equal(execLog.filter(c => c.includes('optimize-apps-async')).length, before);
+  failProgress = false;
+  await [...intervalCallbacks.values()][0]();
   assert.equal(activeIntervals.size, 0);
   assert.equal(elements.get('optimizeAllBtn').disabled, false);
-  failProgress = false;
+});
+
+test('a rejected launch reconciles an existing worker before enabling controls', async () => {
+  failStart = true;
+  appOptState = 'running';
+  statusExtra = 'APP_OPT_TASK_STATE=running';
+  await elements.get('optimizeAllBtn').dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(elements.get('optimizeAllBtn').disabled, true);
+  assert.equal(activeIntervals.size, 1);
+  failStart = false;
+  appOptState = 'done';
+  statusExtra = 'APP_OPT_TASK_STATE=done';
+  await [...intervalCallbacks.values()][0]();
+  assert.equal(elements.get('optimizeAllBtn').disabled, false);
+  assert.equal(activeIntervals.size, 0);
+  statusExtra = '';
 });
 
 test('forced recompilation uses its explicit selected-app action', async () => {
@@ -359,7 +389,22 @@ test('forced recompilation uses its explicit selected-app action', async () => {
   assert.equal(execLog.filter(c => c.includes('optimize-apps-async')).length, 0);
 });
 
-test('an unreadable task state during refresh keeps the dashboard usable', async () => {
+test('a partial profile failure refreshes the selected profile and retains its error', async () => {
+  failProfile = true;
+  await elements.get('setGamingBtn').dispatch('click');
+  assert.match(elements.get('profileBox').textContent, /persistence failed/);
+  assert.equal(elements.get('profileValue').textContent, 'Performance / Gaming');
+  assert.equal(elements.get('setGamingBtn').disabled, true);
+  assert.equal(elements.get('setActiveSmoothBtn').disabled, false);
+  failProfile = false;
+  statusExtra = '';
+  document.hidden = true;
+  await documentListeners.get('visibilitychange')();
+  document.hidden = false;
+  await documentListeners.get('visibilitychange')();
+});
+
+test('an unreadable running task retries without allowing conflicting actions', async () => {
   activeIntervals.clear();
   failMaintSync = true;
   statusExtra = 'MAINTENANCE_TASK_STATE=running';
@@ -368,10 +413,13 @@ test('an unreadable task state during refresh keeps the dashboard usable', async
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.notEqual(elements.get('statusValue').textContent, 'Unavailable', 'refreshStatus threw on an unreadable task state');
   assert.equal(elements.get('statusSub').textContent, 'One-tap maintenance');
-  assert.equal(elements.get('optimizeAllBtn').disabled, false, 'an unreadable task state left the dashboard disabled');
-  assert.equal(activeIntervals.size, 0, 'the failed task poll left a polling interval active');
+  assert.equal(elements.get('optimizeAllBtn').disabled, true);
+  assert.equal(activeIntervals.size, 1);
   failMaintSync = false;
   statusExtra = '';
+  await [...intervalCallbacks.values()][0]();
+  assert.equal(activeIntervals.size, 0);
+  assert.equal(elements.get('optimizeAllBtn').disabled, false);
 });
 
 test('state-dependent actions stay disabled while initial status is pending', async () => {

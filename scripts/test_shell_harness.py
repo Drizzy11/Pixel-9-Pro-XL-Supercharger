@@ -37,10 +37,10 @@ exit 0
             self.assertFalse(marker.exists(), "a descendant outlived a successful sandbox")
 
     def test_result_keeps_the_exit_code_and_both_output_streams(self):
-        result = run_shell("echo output; echo problem >&2; exit 7\n")
+        result = run_shell("echo 'output ⚠️'; echo 'problem 🚀' >&2; exit 7\n")
         self.assertEqual(result.returncode, 7)
-        self.assertEqual(result.stdout.strip(), "output")
-        self.assertEqual(result.stderr.strip(), "problem")
+        self.assertEqual(result.stdout.strip(), "output ⚠️")
+        self.assertEqual(result.stderr.strip(), "problem 🚀")
 
 
 if __name__ == "__main__":

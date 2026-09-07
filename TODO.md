@@ -17,6 +17,10 @@
 
 ## Completed locally
 
+- [x] Audit shipped code and changes against the stable release; fix maintenance
+  false successes, failed thermal/state writes, stale GPU restoration, temperature
+  formatting, concurrent status responses, and WebUI error recovery. See
+  [the code audit](docs/research/release-code-audit.md).
 - [x] Audit candidate failure paths: abort failed installer state creation,
   validate update/download routing, and protect published release assets.
 - [x] Prepare beta metadata/changelog and a shared clean-commit release builder

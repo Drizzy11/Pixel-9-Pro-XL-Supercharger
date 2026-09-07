@@ -16,6 +16,8 @@
   outcomes when supported. Forced recompilation is an explicit selected-app action.
 - Removed the automatic forced verification fallback; failed ART results are
   recognized even when the command exits with code zero.
+- Failed progress reads retry without enabling conflicting actions. Rejected
+  launches and partial profile/thermal failures reconcile the displayed state.
 
 ### Reliability and packaging
 
@@ -31,6 +33,17 @@
   checks the stable update feed and exact repository/package download URL.
 - Rerunning publication verifies published assets instead of replacing them;
   draft updates stay drafts, and API failures stop the workflow.
+- Maintenance reports failed repairs, status refreshes, and snapshots instead of
+  reporting completion. Quoted health values no longer produce false warnings.
+- State updates preserve prior files when a replacement fails and report failed
+  profile persistence. Thermal operations check removal, permissions, and state
+  writes; failed activation attempts remove their incomplete overlay when possible.
+- GPU backups are scoped to the current boot, so old policy is never restored over
+  a new boot's vendor defaults. Experimental GPU writes require a saved original.
+- Negative subdegree temperatures retain their sign; malformed readings are
+  unavailable. Concurrent temperature refreshes cannot hide task state in a
+  controller response. Windows test output is decoded as UTF-8.
+- Every accepted prerelease suffix stays outside the stable publication channel.
 
 ### Testing and installation
 

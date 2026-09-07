@@ -123,6 +123,21 @@ published-asset equality/mismatch behavior, prerelease flags, and API failure
 handling without publishing anything. This brings the suite to 17 Node and
 61 Python tests.
 
+## Code audit regressions
+
+The code audit adds 17 tests in `scripts/test_runtime_failures.py`, one publication
+metadata test, and two WebUI cases. The suite contains 19 Node and 79 Python tests.
+The shell tests inject write/copy/rename/removal failures, preserve prior records,
+simulate a concurrent status replacement and a new boot, and exercise decimal
+temperature parsing. Thermal tests use temporary fixture files; GPU tests use
+fake nodes. No Android entry script or host tuning is executed.
+
+UTF-8 output containing the module's icons is also covered by the existing native
+Windows containment test. The UI tests cover progress retries, rejection while a
+worker already exists, and partial profile updates. A Chrome/Playwright preview
+with a simulated bridge also exercises those visible flows at desktop and mobile
+widths. See [the code audit](research/release-code-audit.md) for scope and limits.
+
 ## Device validation remains separate
 
 Host Bash behavior is not proof of Android `/system/bin/sh`, ART, root-manager

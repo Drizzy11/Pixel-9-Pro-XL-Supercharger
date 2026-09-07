@@ -260,26 +260,27 @@ get_battery_temp_decic() {
     fi
 
     raw="$(cat /sys/class/power_supply/battery/temp 2>/dev/null)"
-    case "$raw" in
-        ''|*[!0-9-]*) return 1 ;;
-        *) echo "$raw"; return 0 ;;
-    esac
+    normalize_temp_decic "$raw"
+}
+
+normalize_temp_decic() {
+    local raw="$1"
+    local sign=""
+    case "$raw" in -*) sign="-"; raw="${raw#-}" ;; esac
+    case "$raw" in ''|*[!0-9]*) return 1 ;; esac
+    while [ "${raw#0}" != "$raw" ]; do raw="${raw#0}"; done
+    raw="${raw:-0}"
+    [ "${#raw}" -le 9 ] || return 1
+    [ "$raw" = 0 ] && sign=""
+    printf '%s%s\n' "$sign" "$raw"
 }
 
 format_temp_label() {
-    local decic="$1"
-    local whole
-    local frac
-
-    if [ -z "$decic" ]; then
-        echo "Temp Unavailable"
-        return 0
-    fi
-
-    whole=$((decic / 10))
-    frac=$((decic % 10))
-    [ "$frac" -lt 0 ] && frac=$((frac * -1))
-    echo "${whole}.${frac}C"
+    local decic
+    local sign=""
+    decic="$(normalize_temp_decic "$1")" || { echo "Temp Unavailable"; return 0; }
+    case "$decic" in -*) sign="-"; decic="${decic#-}" ;; esac
+    echo "${sign}$((decic / 10)).$((decic % 10))C"
 }
 
 refresh_battery_temp_state() {
@@ -298,7 +299,8 @@ abs_diff_decic() {
 }
 
 write_env_pair() {
-  key="$1"
+  local key="$1"
+  local value
   value="$(printf "%s" "$2" | tr -d '
 ')"
   printf '%s="%s"
@@ -364,15 +366,31 @@ thermal_profile_for() {
     esac
 }
 
+commit_state_file() {
+  local temporary="$1"
+  local destination="$2"
+  if [ ! -d "$destination" ] && chmod 0644 "$temporary" 2>/dev/null && mv -f "$temporary" "$destination" 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$temporary" 2>/dev/null
+  return 1
+}
+
+write_selection_file() {
+  local destination="$1"
+  local selection="$2"
+  local temporary="$destination.tmp.$$"
+  printf '%s\n' "$selection" > "$temporary" 2>/dev/null || { rm -f "$temporary" 2>/dev/null; return 1; }
+  commit_state_file "$temporary" "$destination"
+}
+
 save_selected_profile() {
     local value="$1"
 
-    echo "$value" > "$PROFILE_FILE" 2>/dev/null || return 1
-    chmod 0644 "$PROFILE_FILE" 2>/dev/null || true
-    if mkdir -p "$PERSIST_STATE_DIR" 2>/dev/null; then
-        chmod 0755 "$PERSIST_STATE_DIR" 2>/dev/null || true
-        echo "$value" > "$PERSIST_PROFILE_FILE" 2>/dev/null || true
-        chmod 0644 "$PERSIST_PROFILE_FILE" 2>/dev/null || true
+    write_selection_file "$PROFILE_FILE" "$value" || return 1
+    if ! mkdir -p "$PERSIST_STATE_DIR" 2>/dev/null || ! write_selection_file "$PERSIST_PROFILE_FILE" "$value"; then
+        log_line "[FAIL] Profile saved locally, but persistence across updates failed"
+        return 1
     fi
     return 0
 }
@@ -1018,20 +1036,42 @@ number_ge() {
     awk -v a="$1" -v b="$2" 'BEGIN { if ((a + 0) >= (b + 0)) exit 0; exit 1 }' 2>/dev/null
 }
 
+gpu_state_current_boot() {
+    local boot
+    boot="$(current_boot_id)"
+    [ -n "$boot" ] && [ -r "$GPU_STATE_FILE" ] || return 1
+    [ "$(head -n 1 "$GPU_STATE_FILE" 2>/dev/null)" = "boot_id|$boot" ]
+}
+
 gpu_state_has() {
     local kind="$1"
     local path="$2"
     [ -r "$GPU_STATE_FILE" ] || return 1
-    grep -F "${kind}|${path}|" "$GPU_STATE_FILE" >/dev/null 2>&1
+    local saved_kind saved_path saved_value
+    while IFS='|' read -r saved_kind saved_path saved_value; do
+        [ "$saved_kind" = "$kind" ] && [ "$saved_path" = "$path" ] && [ -n "$saved_value" ] && return 0
+    done < "$GPU_STATE_FILE"
+    return 1
 }
 
 gpu_state_save() {
     local kind="$1"
     local path="$2"
     local value="$3"
-    [ -n "$kind" ] && [ -n "$path" ] || return 0
+    local boot temporary
+    [ -n "$kind" ] && [ -n "$path" ] && [ -n "$value" ] || return 1
+    if ! gpu_state_current_boot; then
+        boot="$(current_boot_id)"
+        [ -n "$boot" ] && [ ! -d "$GPU_STATE_FILE" ] || return 1
+        temporary="$GPU_STATE_FILE.tmp.$$"
+        printf 'boot_id|%s\n' "$boot" > "$temporary" 2>/dev/null || return 1
+        if ! chmod 0644 "$temporary" 2>/dev/null || ! mv -f "$temporary" "$GPU_STATE_FILE" 2>/dev/null; then
+            rm -f "$temporary" 2>/dev/null
+            return 1
+        fi
+    fi
     gpu_state_has "$kind" "$path" && return 0
-    printf '%s|%s|%s\n' "$kind" "$path" "$value" >> "$GPU_STATE_FILE" 2>/dev/null
+    printf '%s|%s|%s\n' "$kind" "$path" "$value" >> "$GPU_STATE_FILE" 2>/dev/null || return 1
     chmod 0644 "$GPU_STATE_FILE" 2>/dev/null
 }
 
@@ -1041,10 +1081,13 @@ gpu_restore_policy() {
     local value
     local restored=0
 
-    [ -r "$GPU_STATE_FILE" ] || return 0
+    # Kernel policy is initialized afresh at boot. Never restore a previous
+    # boot's (or an unstamped legacy) snapshot over current vendor defaults.
+    gpu_state_current_boot || return 0
 
     while IFS='|' read -r kind path value; do
-        [ -n "$kind" ] && [ -n "$path" ] || continue
+        case "$kind" in governor|max_freq|min_freq|graphics_min_freq) : ;; *) continue ;; esac
+        [ -n "$path" ] && [ -n "$value" ] || continue
         [ -e "$path" ] || continue
         [ -w "$path" ] || continue
         if printf '%s' "$value" > "$path" 2>/dev/null; then
@@ -1056,6 +1099,7 @@ gpu_restore_policy() {
         log_line "[PASS] GPU Policy Restore: restored $restored saved GPU setting(s) for non-gaming profile"
         record_applied "GPU Policy Restore"
     fi
+    return 0
 }
 
 gpu_text_matches() {
@@ -1186,9 +1230,7 @@ apply_gpu_devfreq_policy() {
     [ -r "$gov_dir/available_governors" ] && log_line "[INFO] GPU Available Governors ($dev_name): $(safe_read "$gov_dir/available_governors")"
     [ -r "$gov_dir/available_frequencies" ] && log_line "[INFO] GPU Available Frequencies ($dev_name): $(safe_read "$gov_dir/available_frequencies")"
 
-    if [ -r "$gov_path" ]; then
-        gpu_state_save "governor" "$gov_path" "$(safe_read "$gov_path")"
-    fi
+    gpu_state_save "governor" "$gov_path" "$(safe_read "$gov_path")" || { log_line "[SKIP] GPU policy: could not save the original governor"; return 1; }
 
     avail_gov="$(safe_read "$gov_dir/available_governors")"
     if [ -n "$avail_gov" ]; then
@@ -1215,7 +1257,7 @@ apply_gpu_devfreq_policy() {
     max_avail="$(printf '%s\n' "$avail_freq" | max_gpu_freq)"
 
     if [ -n "$max_avail" ] && [ -e "$gov_dir/max_freq" ] && [ -w "$gov_dir/max_freq" ]; then
-        gpu_state_save "max_freq" "$gov_dir/max_freq" "$(safe_read "$gov_dir/max_freq")"
+        gpu_state_save "max_freq" "$gov_dir/max_freq" "$(safe_read "$gov_dir/max_freq")" || { log_line "[SKIP] GPU maximum: could not save the original value"; return 1; }
         current="$(safe_read "$gov_dir/max_freq")"
         if number_ge "$current" "$max_avail"; then
             log_line "[PASS] GPU Max Frequency ($dev_name): already at maximum ${current:-$max_avail}"
@@ -1229,7 +1271,7 @@ apply_gpu_devfreq_policy() {
     fi
 
     if [ -n "$floor_freq" ] && [ -e "$gov_dir/min_freq" ] && [ -w "$gov_dir/min_freq" ]; then
-        gpu_state_save "min_freq" "$gov_dir/min_freq" "$(safe_read "$gov_dir/min_freq")"
+        gpu_state_save "min_freq" "$gov_dir/min_freq" "$(safe_read "$gov_dir/min_freq")" || { log_line "[SKIP] GPU floor: could not save the original value"; return 1; }
         current="$(safe_read "$gov_dir/min_freq")"
         if number_ge "$current" "$floor_freq"; then
             log_line "[PASS] GPU Frequency Floor ($dev_name): preserved current floor ${current:-$floor_freq}"
@@ -1278,7 +1320,7 @@ apply_graphics_pipeline_boost() {
         log_line "[INFO] Graphics Pipeline Frequencies ($dev_name): $avail_freq"
 
         if [ -e "$gov_dir/min_freq" ] && [ -w "$gov_dir/min_freq" ]; then
-            gpu_state_save "graphics_min_freq" "$gov_dir/min_freq" "$(safe_read "$gov_dir/min_freq")"
+            gpu_state_save "graphics_min_freq" "$gov_dir/min_freq" "$(safe_read "$gov_dir/min_freq")" || { log_line "[SKIP] Graphics floor: could not save the original value"; continue; }
             current="$(safe_read "$gov_dir/min_freq")"
             if number_ge "$current" "$floor_freq"; then
                 log_line "[PASS] Graphics Pipeline Floor ($dev_name): preserved current floor ${current:-$floor_freq}"
@@ -1617,9 +1659,8 @@ write_addon_api() {
         write_env_pair "THERMAL_ADDON_VERSION" "$THERMAL_ADDON_VERSION"
         emit_integrated_thermal_status
         write_env_pair "LAST_UPDATED" "$(date)"
-    } > "$tmp"
-    chmod 0644 "$tmp" 2>/dev/null
-    mv -f "$tmp" "$ADDON_API_ENV" 2>/dev/null
+    } > "$tmp" || { rm -f "$tmp" 2>/dev/null; return 1; }
+    commit_state_file "$tmp" "$ADDON_API_ENV"
 }
 
 get_dashboard_status() {
@@ -1746,12 +1787,12 @@ write_module_status_env() {
         write_env_pair "LOG_FILE" "$LOG_FILE"
         write_env_pair "SNAPSHOT_FILE" "$SNAPSHOT_FILE"
         write_env_pair "LAST_UPDATED" "$(date)"
-    } > "$tmp"
-    chmod 0644 "$tmp" 2>/dev/null
-    mv -f "$tmp" "$STATUS_ENV" 2>/dev/null
+    } > "$tmp" || { rm -f "$tmp" 2>/dev/null; return 1; }
+    commit_state_file "$tmp" "$STATUS_ENV"
 }
 
 write_support_snapshot() {
+    local tmp="$SNAPSHOT_FILE.tmp.$$"
     {
         echo "Supercharger Support Snapshot"
         echo "Version: $PROFILE_VERSION"
@@ -1787,7 +1828,8 @@ write_support_snapshot() {
         echo "Preserved Successfully: ${PRESERVED_CAPABILITIES:-none}"
         echo "Applied Successfully: ${APPLIED_CAPABILITIES:-none}"
         echo "Generated: $(date)"
-    } > "$SNAPSHOT_FILE"
+    } > "$tmp" || { rm -f "$tmp" 2>/dev/null; return 1; }
+    commit_state_file "$tmp" "$SNAPSHOT_FILE"
 }
 
 log_thermal_addon_audit() {

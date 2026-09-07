@@ -58,6 +58,10 @@ jobs:
             CHANNEL="rc"
             PRERELEASE="true"
             TITLE_SUFFIX=" (RC)"
+          elif [[ "${TAG_NAME}" == *-* ]]; then
+            CHANNEL="prerelease"
+            PRERELEASE="true"
+            TITLE_SUFFIX=" (Prerelease)"
           fi
 
           ASSET_BASENAME="Pixel-9-Series-Supercharger-${TAG_NAME}"
