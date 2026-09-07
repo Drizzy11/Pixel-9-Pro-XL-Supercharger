@@ -1,0 +1,22 @@
+name: Website checks
+on:
+  pull_request:
+    paths: ['site/**', 'scripts/*site*', '.github/workflows/pages.yml', '.github/workflows/website-check.yml']
+  push:
+    branches: [main, 'codex/**']
+    paths: ['site/**', 'scripts/*site*', '.github/workflows/pages.yml', '.github/workflows/website-check.yml']
+permissions:
+  contents: read
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Build from the committed public snapshot
+        run: python3 scripts/build_site.py
+      - name: Check links, translations, release handling, and tools
+        run: python3 scripts/check_site.py
