@@ -59,6 +59,17 @@ for performance in active_smooth performance_gaming; do
 done
 ''', controller=["ensure_persist_state_dir", "save_selected_profile", "save_integrated_thermal_profile"])
 
+    def test_failed_state_creation_is_not_a_successful_install(self):
+        for name in ("current_profile", "thermal_current_profile", "thermal_control.env", "module_status.env", "debug.log"):
+            with self.subTest(name=name):
+                self.check(r'''
+mkdir "$MODPATH/STATE_NAME"
+if initialize_module_state >/dev/null 2>error; then
+  echo 'Initialization reported success after a required state write failed'; exit 1
+fi
+[ -s error ] || exit 2
+'''.replace("STATE_NAME", name))
+
     def test_invalid_persisted_values_fall_back_without_evaluation(self):
         self.check(r'''
 printf '%s\n' '$(touch injected)' > "$PERSIST_PROFILE_FILE"

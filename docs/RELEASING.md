@@ -48,6 +48,11 @@ workflow. Publishing the draft is a separate user-authorized action. If the tag
 workflow runs after publication, it rebuilds the same committed source through
 the shared builder. Prereleases explicitly use `--latest=false`.
 
+Rerunning the tag workflow verifies an already-published release's assets and
+leaves them unchanged. A mismatch fails instead of overwriting published bytes.
+Only drafts can have their assets replaced, and draft updates retain the draft
+flag. An API/authentication failure is not treated as a missing release.
+
 Before publishing, verify that `/releases/latest` and its `update.json` still
 refer to the stable release, and that the draft's assets match the manifest.
 
@@ -61,10 +66,18 @@ manager/version, profile, thermal setting, and support snapshot:
 
 - Fresh installation and clean boot with Thermal Control off.
 - Update from the previous stable version, retaining both profile selections.
+  Thermal Control intentionally returns to off after the update; re-enable it
+  manually only after confirming a clean boot.
 - Normal ART optimization, skipped work, failures, and explicit forced action.
 - WebUI hiding/reopening during a job, completion, interruption, and retry.
 - Profile changes with reboot and Thermal Control enable/disable with reboot.
 - Uninstall and clean reboot, preserving an external thermal add-on's registry.
+  Finish maintenance/ART jobs before uninstalling. Record profile selections
+  first: uninstall intentionally clears the module's saved settings.
+
+Expected install failures (for example, an unwritable required state file) must
+abort installation rather than report completion. Unsupported tuning nodes may
+be logged as skipped; do not confuse a safe skip with proof of a performance gain.
 
 Keep the previous stable ZIP available. Use the installed root manager's own
 supported recovery/safe-mode procedure if normal boot is unavailable. Do not

@@ -116,6 +116,13 @@ bad metadata, existing-output protection, and unsafe archive entries. The releas
 preparation suite contains 17 Node and 53 Python tests. CI also runs the actual
 clean-commit builder before any tag is published. See [Releasing](RELEASING.md).
 
+The final release audit adds failed-installer-state coverage, stable-feed and
+repository URL checks, and five tests of the actual publication workflow block.
+GitHub commands in those tests are doubles: they verify draft preservation,
+published-asset equality/mismatch behavior, prerelease flags, and API failure
+handling without publishing anything. This brings the suite to 17 Node and
+61 Python tests.
+
 ## Device validation remains separate
 
 Host Bash behavior is not proof of Android `/system/bin/sh`, ART, root-manager

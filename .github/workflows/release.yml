@@ -115,8 +115,22 @@ jobs:
             CREATE_ARGS+=(--latest)
           fi
 
-          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
-            echo "Release ${TAG_NAME} already exists. Updating it."
+          if gh release view "${TAG_NAME}" --json isDraft --jq .isDraft > "${RUNNER_TEMP}/release-is-draft" 2> "${RUNNER_TEMP}/release-view-error"; then
+            if [[ "$(cat "${RUNNER_TEMP}/release-is-draft")" != "true" ]]; then
+              echo "Release ${TAG_NAME} is published. Verifying existing assets without changing them."
+              VERIFY_DIR="${RUNNER_TEMP}/published-release-check"
+              gh release download "${TAG_NAME}" --dir "${VERIFY_DIR}" \
+                --pattern "${ASSET_BASENAME}.zip" --pattern "${ASSET_BASENAME}.zip.sha256" \
+                --pattern update.json --pattern release-manifest.json
+              for asset in "${ASSET_BASENAME}.zip" "${ASSET_BASENAME}.zip.sha256" update.json release-manifest.json; do
+                cmp "${RELEASE_DIR}/${asset}" "${VERIFY_DIR}/${asset}" || {
+                  echo "Published asset differs: ${asset}. Prepare a new version instead of overwriting it." >&2
+                  exit 1
+                }
+              done
+              exit 0
+            fi
+            echo "Release ${TAG_NAME} is a draft. Updating the prepared assets."
 
             gh release upload "${TAG_NAME}" \
               "${ZIP_PATH}" \
@@ -127,9 +141,10 @@ jobs:
 
             gh release edit "${TAG_NAME}" \
               --title "${RELEASE_TITLE}" \
+              --draft \
               --notes-file "${RELEASE_DIR}/release-notes.md" \
               "${EDIT_ARGS[@]}"
-          else
+          elif grep -q 'release not found' "${RUNNER_TEMP}/release-view-error"; then
             echo "Release ${TAG_NAME} does not exist. Creating it."
 
             gh release create "${TAG_NAME}" \
@@ -141,4 +156,7 @@ jobs:
               --title "${RELEASE_TITLE}" \
               --notes-file "${RELEASE_DIR}/release-notes.md" \
               "${CREATE_ARGS[@]}"
+          else
+            cat "${RUNNER_TEMP}/release-view-error" >&2
+            exit 1
           fi

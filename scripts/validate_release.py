@@ -176,6 +176,15 @@ def check_main_metadata(root):
         errors.append("update.json version does not match module.prop")
     if str(update.get("versionCode", "")) != version_code:
         errors.append("update.json versionCode does not match module.prop")
+    feed = module.get("updateJson", "")
+    feed_match = re.fullmatch(r"(https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+)/releases/latest/download/update\.json", feed)
+    if not feed_match:
+        errors.append("module.prop updateJson must follow the stable GitHub release asset feed")
+    else:
+        repo_url = feed_match.group(1)
+        expected_zip = f"{repo_url}/releases/download/{version}/Pixel-9-Series-Supercharger-{version}.zip"
+        if update.get("zipUrl") != expected_zip:
+            errors.append("update.json zipUrl must reference this repository's exact versioned module ZIP")
     # The root manager downloads each URL and uses its raw content, so a GitHub
     # release page in `changelog` would be rendered to the user as HTML markup.
     for field, suffix in (("zipUrl", ".zip"), ("changelog", ".md")):

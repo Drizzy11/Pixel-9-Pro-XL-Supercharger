@@ -102,6 +102,19 @@ class ReleaseValidationTests(unittest.TestCase):
         (source / "update.json").write_text("[]", encoding="utf-8")
         self.assertTrue(any("update.json" in error for error in check_source(source, "main")))
 
+    def test_module_feed_cannot_follow_unreleased_branch_metadata(self):
+        source = self.source()
+        prop = source / "module.prop"
+        import re
+        prop.write_text(re.sub(r"^updateJson=.*$", "updateJson=https://raw.githubusercontent.com/owner/repo/main/update.json", prop.read_text(), flags=re.M), encoding="utf-8")
+        self.assertTrue(any("stable GitHub release asset feed" in error for error in check_source(source, "main")))
+
+    def test_update_zip_must_belong_to_the_same_repository(self):
+        source = self.source()
+        update = source / "update.json"
+        update.write_text(update.read_text().replace("Drizzy07x/Supercharger_Pixel_9_Series/releases/download/", "other/other/releases/download/"), encoding="utf-8")
+        self.assertTrue(any("exact versioned module ZIP" in error for error in check_source(source, "main")))
+
 
 if __name__ == "__main__":
     unittest.main()

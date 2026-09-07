@@ -57,20 +57,26 @@ restore_persistent_state() {
 }
 
 initialize_module_state() {
-  local task_lock
+  local task_lock state_file
+  for state_file in debug.log maintenance.log module_status.env addon_api.env support_snapshot.txt current_profile thermal_current_profile thermal_control.env; do
+    if [ -L "$MODPATH/$state_file" ] || { [ -e "$MODPATH/$state_file" ] && [ ! -f "$MODPATH/$state_file" ]; }; then
+      echo "[ERROR] Expected a regular module state file: $state_file" >&2
+      return 1
+    fi
+  done
   rm -f "$MODPATH/dashboard_updater.pid" 2>/dev/null
   rm -f "$MODPATH/app_optimization.pid" "$MODPATH/maintenance_task.pid" 2>/dev/null
   for task_lock in "$MODPATH/.dashboard_updater.lock" "$MODPATH/.app_optimization.lock" "$MODPATH/.maintenance.lock" "$MODPATH/.app_optimization_task.lock" "$MODPATH/.maintenance_task.lock"; do
     rm -rf "$task_lock" "$task_lock.reclaim" 2>/dev/null
   done
   [ -f "$MODPATH/debug.log" ] && mv -f "$MODPATH/debug.log" "$MODPATH/debug.previous.log" 2>/dev/null
-  touch "$MODPATH/debug.log" "$MODPATH/maintenance.log" "$MODPATH/module_status.env" "$MODPATH/addon_api.env" "$MODPATH/support_snapshot.txt"
-  restore_persistent_state current_profile "$MODPATH/current_profile"
+  touch "$MODPATH/debug.log" "$MODPATH/maintenance.log" "$MODPATH/module_status.env" "$MODPATH/addon_api.env" "$MODPATH/support_snapshot.txt" || return 1
+  restore_persistent_state current_profile "$MODPATH/current_profile" || return 1
   rm -f "$MODPATH/system/vendor/etc/thermal_info_config.json" \
         "$MODPATH/system/vendor/etc/thermal_info_config_lpm.json" \
-        "$MODPATH/system/vendor/etc/thermal_info_config_charge.json" 2>/dev/null
+        "$MODPATH/system/vendor/etc/thermal_info_config_charge.json" 2>/dev/null || return 1
   rmdir "$MODPATH/system/vendor/etc" "$MODPATH/system/vendor" "$MODPATH/system" 2>/dev/null || true
-  cat > "$MODPATH/thermal_control.env" <<'EOF_THERMAL_DEFAULT'
+  cat > "$MODPATH/thermal_control.env" <<'EOF_THERMAL_DEFAULT' || return 1
 THERMAL_CONTROL_MERGED="1"
 THERMAL_CONTROL_AVAILABLE="1"
 THERMAL_CONTROL_ENABLED="0"
@@ -83,7 +89,7 @@ EOF_THERMAL_DEFAULT
   restore_persistent_state thermal_current_profile "$MODPATH/thermal_current_profile"
 }
 
-initialize_module_state
+initialize_module_state || abort " Could not initialize module state; installation aborted "
 
 if [ -f "$MODPATH/service.sh" ]; then
   tmp="$MODPATH/service.sh.tmp.$$"

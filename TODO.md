@@ -17,6 +17,8 @@
 
 ## Completed locally
 
+- [x] Audit candidate failure paths: abort failed installer state creation,
+  validate update/download routing, and protect published release assets.
 - [x] Prepare beta metadata/changelog and a shared clean-commit release builder
   with checksums, per-file manifest, and packaging regression tests.
 - [x] Batch task state/log progress into one bounded response and suspend WebUI

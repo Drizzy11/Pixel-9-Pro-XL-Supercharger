@@ -27,6 +27,10 @@
 - Release validation rejects malformed/NUL ZIP names, unsafe paths, runtime files,
   unexpected types/permissions, and CRLF scripts. Host tests contain descendants
   on Windows and Linux.
+- Installation aborts when required state cannot be created. Release validation
+  checks the stable update feed and exact repository/package download URL.
+- Rerunning publication verifies published assets instead of replacing them;
+  draft updates stay drafts, and API failures stop the workflow.
 
 ### Testing and installation
 

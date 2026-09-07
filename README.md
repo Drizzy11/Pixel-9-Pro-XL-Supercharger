@@ -91,7 +91,7 @@ The module publishes an update feed as a release asset, so Magisk, KernelSU, and
 
 ### Uninstalling
 
-Remove the module from your root manager and reboot. Uninstall stops the dashboard updater, clears persistent state under `/data/adb/supercharger_state`, and removes only the thermal request this module created, leaving an external Thermal Control add-on's registry intact.
+Finish any maintenance or app-optimization job, record your selected profiles, then remove the module from your root manager and reboot. Uninstall stops the dashboard updater, clears persistent state under `/data/adb/supercharger_state`, and removes only the thermal request this module created, leaving an external Thermal Control add-on's registry intact.
 
 ---
 
