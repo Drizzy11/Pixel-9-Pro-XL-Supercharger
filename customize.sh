@@ -7,7 +7,7 @@ RELEASE="$(getprop ro.build.version.release)"
 
 ui_print "*********************************************************"
 ui_print "  Pixel 9 Series Supercharger"
-ui_print "  Build: v2.6.7"
+ui_print "  Build: v2.6.8-beta.1"
 ui_print "*********************************************************"
 
 validate_install_environment() {
@@ -21,7 +21,6 @@ validate_install_environment() {
       ;;
   esac
 
-  # Magisk 31.0 (31000) should be used as minMagisk only once an official APK exists.
   # Effective Magisk requirement remains 30.7 (versionCode 30700).
   MIN_MAGISK_CODE=30700
   if [ -z "$KSU" ] && [ -z "$APATCH" ] && [ -n "$MAGISK_VER_CODE" ]; then
@@ -88,7 +87,7 @@ initialize_module_state
 
 if [ -f "$MODPATH/service.sh" ]; then
   tmp="$MODPATH/service.sh.tmp.$$"
-  if sed 's/^PROFILE_VERSION=.*/PROFILE_VERSION="v2.6.7"/' "$MODPATH/service.sh" > "$tmp" 2>/dev/null; then
+  if sed 's/^PROFILE_VERSION=.*/PROFILE_VERSION="v2.6.8-beta.1"/' "$MODPATH/service.sh" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$MODPATH/service.sh" 2>/dev/null
   else
     rm -f "$tmp" 2>/dev/null

@@ -1,8 +1,8 @@
 id=p9pxl_supercharger
 name=Pixel 9 Series Supercharger
-version=v2.6.7
-versionCode=26007
+version=v2.6.8-beta.1
+versionCode=26008
 author=Drizzy_07
-description=Status: v2.6.7 | Integrated Thermal | Thermal off by default
+description=Status: v2.6.8-beta.1 | Beta - device validation pending | Integrated Thermal | Thermal off by default
 updateJson=https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/latest/download/update.json
 minMagisk=30700

@@ -86,8 +86,9 @@ python3 scripts/validate_release.py --profile main --skip-source --zip /path/to/
 
 The ZIP validator requires actual files at the mandatory paths and rejects unsafe
 or duplicate paths, symbolic links, unexpected permissions, runtime state, and
-development-only content. Package creation still uses the explicit allowlist in
-`.github/workflows/release.yml`.
+development-only content. Package creation uses the explicit allowlist in
+`scripts/build_release.py`, shared by local preparation and the release workflow.
+See [Release preparation](docs/RELEASING.md) for packaging and draft review.
 
 If you change WebUI state handling, add coverage to
 `scripts/webui_regression.test.mjs`. It stubs the KernelSU `ksu.exec` bridge, so

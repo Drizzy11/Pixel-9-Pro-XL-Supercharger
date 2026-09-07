@@ -83,130 +83,11 @@ jobs:
 
           python3 scripts/check.py
 
-      - name: Create module ZIP
+      - name: Build and validate release assets
         shell: bash
-        env:
-          ASSET_BASENAME: ${{ steps.meta.outputs.asset_basename }}
         run: |
           set -euo pipefail
-          set -x
-
-          mkdir -p dist
-
-          ZIP_PATH="dist/${ASSET_BASENAME}.zip"
-          SHA_PATH="${ZIP_PATH}.sha256"
-
-          rm -f "${ZIP_PATH}" "${SHA_PATH}"
-
-          chmod 0644 module.prop system.prop update.json
-          chmod 0755 customize.sh service.sh uninstall.sh
-          find bin -type d -exec chmod 0755 {} +
-          find bin -type f -exec chmod 0755 {} +
-          find common -type d -exec chmod 0755 {} +
-          find common -type f -exec chmod 0644 {} +
-          find webroot -type d -exec chmod 0755 {} +
-          find webroot -type f -exec chmod 0644 {} +
-          find thermal_profiles -type d -exec chmod 0755 {} + 2>/dev/null || true
-          find thermal_profiles -type f -exec chmod 0644 {} + 2>/dev/null || true
-
-          cat > dist/package-manifest.txt <<'EOF'
-          module.prop
-          system.prop
-          customize.sh
-          service.sh
-          uninstall.sh
-          update.json
-          bin
-          common
-          webroot
-          thermal_profiles
-          EOF
-
-          mapfile -t ZIP_ITEMS < <(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' dist/package-manifest.txt | sed '/^$/d')
-          zip -r "${ZIP_PATH}" "${ZIP_ITEMS[@]}"
-
-          python3 scripts/validate_release.py --profile main --skip-source --zip "${ZIP_PATH}"
-
-          # Record the basename so `sha256sum -c` works where the assets land.
-          (cd dist && sha256sum "${ASSET_BASENAME}.zip" > "${ASSET_BASENAME}.zip.sha256")
-
-          unzip -l "${ZIP_PATH}" | sed -n '1,200p'
-          ls -lh "${ZIP_PATH}" "${SHA_PATH}"
-
-      - name: Generate release notes
-        shell: bash
-        env:
-          TAG_NAME: ${{ steps.meta.outputs.tag_name }}
-          CHANNEL: ${{ steps.meta.outputs.channel }}
-          RELEASE_TITLE: ${{ steps.meta.outputs.release_title }}
-          ASSET_BASENAME: ${{ steps.meta.outputs.asset_basename }}
-        run: |
-          set -euo pipefail
-          set -x
-
-          python3 <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          tag = os.environ["TAG_NAME"]
-          channel = os.environ["CHANNEL"]
-          title = os.environ["RELEASE_TITLE"]
-          asset = os.environ["ASSET_BASENAME"]
-
-          body = None
-
-          def extract_section(text: str, candidates: list[str]) -> str | None:
-              lines = text.splitlines()
-              starts = [i for i, line in enumerate(lines) if line.strip().startswith("## ")]
-
-              for i in starts:
-                  heading = lines[i].strip()
-                  for candidate in candidates:
-                      pattern = re.compile(
-                          rf"^##\s+\[?{re.escape(candidate)}\]?(?:\s|$|-)",
-                          re.IGNORECASE
-                      )
-                      if pattern.search(heading):
-                          j = i + 1
-                          while j < len(lines) and not lines[j].strip().startswith("## "):
-                              j += 1
-                          return "\n".join(lines[i:j]).strip()
-              return None
-
-          changelog_candidates = [Path("changelog.md"), Path("CHANGELOG.md")]
-          changelog_path = next((p for p in changelog_candidates if p.exists()), None)
-
-          if changelog_path:
-              text = changelog_path.read_text(encoding="utf-8", errors="ignore")
-              normalized = tag[1:] if tag.lower().startswith("v") else tag
-              body = extract_section(text, [tag, normalized])
-
-          if not body:
-              prerelease_note = ""
-              if channel != "stable":
-                  prerelease_note = f"\n> This is a **{channel.upper()} prerelease**.\n"
-
-              body = f"""## {title}
-
-          Automated release package for `{tag}`.{prerelease_note}
-
-          ### Assets
-          - `{asset}.zip`
-          - `{asset}.zip.sha256`
-          - `update.json`
-
-          ### Notes
-          - Built automatically from the tagged source
-          - Version tag is validated against `module.prop`
-          - Prerelease status is inferred from the tag suffix (`-alpha`, `-beta`, `-rc`)
-          - Existing releases are updated instead of failing
-          """
-
-          Path("release-notes.md").write_text(body.strip() + "\n", encoding="utf-8")
-          PY
-
-          sed -n '1,200p' release-notes.md
+          python3 scripts/build_release.py --output "${RUNNER_TEMP}/supercharger-release"
 
       - name: Publish or update GitHub release
         env:
@@ -220,15 +101,16 @@ jobs:
           set -euo pipefail
           set -x
 
-          ZIP_PATH="dist/${ASSET_BASENAME}.zip"
+          RELEASE_DIR="${RUNNER_TEMP}/supercharger-release"
+          ZIP_PATH="${RELEASE_DIR}/${ASSET_BASENAME}.zip"
           SHA_PATH="${ZIP_PATH}.sha256"
 
           CREATE_ARGS=()
           EDIT_ARGS=()
 
           if [[ "${PRERELEASE}" == "true" ]]; then
-            CREATE_ARGS+=(--prerelease)
-            EDIT_ARGS+=(--prerelease)
+            CREATE_ARGS+=(--prerelease --latest=false)
+            EDIT_ARGS+=(--prerelease --latest=false)
           else
             CREATE_ARGS+=(--latest)
           fi
@@ -239,12 +121,13 @@ jobs:
             gh release upload "${TAG_NAME}" \
               "${ZIP_PATH}" \
               "${SHA_PATH}" \
-              update.json \
+              "${RELEASE_DIR}/update.json" \
+              "${RELEASE_DIR}/release-manifest.json" \
               --clobber
 
             gh release edit "${TAG_NAME}" \
               --title "${RELEASE_TITLE}" \
-              --notes-file release-notes.md \
+              --notes-file "${RELEASE_DIR}/release-notes.md" \
               "${EDIT_ARGS[@]}"
           else
             echo "Release ${TAG_NAME} does not exist. Creating it."
@@ -252,9 +135,10 @@ jobs:
             gh release create "${TAG_NAME}" \
               "${ZIP_PATH}" \
               "${SHA_PATH}" \
-              update.json \
+              "${RELEASE_DIR}/update.json" \
+              "${RELEASE_DIR}/release-manifest.json" \
               --verify-tag \
               --title "${RELEASE_TITLE}" \
-              --notes-file release-notes.md \
+              --notes-file "${RELEASE_DIR}/release-notes.md" \
               "${CREATE_ARGS[@]}"
           fi

@@ -2,6 +2,8 @@
 
 ## Now
 
+- [ ] Publish the prepared beta only after release approval, keeping it marked
+  prerelease and not Latest. See [Release preparation](docs/RELEASING.md).
 - [ ] Review [PR #11](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/pull/11)
   before merging; verify the checks for its latest commit.
 
@@ -15,6 +17,8 @@
 
 ## Completed locally
 
+- [x] Prepare beta metadata/changelog and a shared clean-commit release builder
+  with checksums, per-file manifest, and packaging regression tests.
 - [x] Batch task state/log progress into one bounded response and suspend WebUI
   pollers while hidden, rejecting stale responses and resuming completed jobs.
 - [x] Batch package inventories into two queries, cache the WebUI list for up to

@@ -24,6 +24,8 @@ jobs:
           package-manager-cache: false
       - name: Run repository checks
         run: python3 scripts/check.py
+      - name: Validate release packaging from the checked-out commit
+        run: python3 scripts/build_release.py --output "${RUNNER_TEMP}/supercharger-release-check"
 
   windows-harness:
     runs-on: windows-latest

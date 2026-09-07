@@ -1,8 +1,12 @@
 # Pixel 9 Series Supercharger
 
+> **Beta for controlled testing.** Host and CI checks pass, but this build has not
+> been validated on a rooted Pixel. Thermal Control remains off after installation.
+> Use the prepared beta ZIP manually; the in-app update feed remains on stable releases.
+
 <p align="center">
-<a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/latest">
-<img src="https://img.shields.io/github/v/release/Drizzy07x/Supercharger_Pixel_9_Series?style=for-the-badge&label=Release&color=34A853" alt="Latest release">
+<a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/tag/v2.6.8-beta.1">
+<img src="https://img.shields.io/github/v/release/Drizzy07x/Supercharger_Pixel_9_Series?include_prereleases&style=for-the-badge&label=Release&color=34A853" alt="Latest release">
 </a>
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases">
 <img src="https://img.shields.io/github/downloads/Drizzy07x/Supercharger_Pixel_9_Series/total?style=for-the-badge&label=Downloads&color=4285F4" alt="Total downloads">
@@ -20,7 +24,7 @@
 <img src="https://img.shields.io/badge/SoC-Tensor%20G4-F29900?style=flat-square" alt="SoC">
 <img src="https://img.shields.io/badge/Android-16%20QPR3%2B%20%26%2017-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android">
 <img src="https://img.shields.io/badge/Root-Magisk%20%7C%20KernelSU%20%7C%20APatch-EA4335?style=flat-square" alt="Root">
-<img src="https://img.shields.io/badge/Channel-Stable-101c30?style=flat-square" alt="Channel">
+<img src="https://img.shields.io/badge/Channel-Beta-101c30?style=flat-square" alt="Channel">
 </p>
 
 **Pixel 9 Series Supercharger** is a systemless performance, thermal, and maintenance module for the **Pixel 9 series on Tensor G4**.
@@ -28,7 +32,7 @@
 The goal is simple: improve daily smoothness and responsiveness without turning the device into a reckless benchmark profile. Every change is applied best-effort, logged, and reversible from a WebUI dashboard.
 
 <p align="center">
-<a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/latest"><b>Download the latest release &rarr;</b></a>
+<a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/tag/v2.6.8-beta.1"><b>Download the latest release &rarr;</b></a>
 </p>
 
 <p align="center">
@@ -63,7 +67,7 @@ Tuning targets the Tensor G4 platform rather than a single model, and every writ
 
 - Android 16 QPR3+ or Android 17
 - An unlocked bootloader with Magisk, KernelSU, or APatch installed
-- Magisk 30.7 or newer when installing with Magisk (`minMagisk` 30700). Do not treat Magisk 31.0 as the floor until an official APK exists
+- Magisk 30.7 or newer when installing with Magisk (`minMagisk` 30700)
 - A root manager with WebUI support, to reach the dashboard
 - On KernelSU / APatch 3.x, Integrated Thermal Control is a no-op unless a metamodule provides overlay/mount capability (`meta-overlayfs` and/or `meta-magicmount`). Supercharger does not ship a metamodule
 
@@ -71,7 +75,7 @@ Tuning targets the Tensor G4 platform rather than a single model, and every writ
 
 ## Installation
 
-1. Download the latest `Pixel-9-Series-Supercharger-*.zip` from the [releases page](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/latest).
+1. Download the latest `Pixel-9-Series-Supercharger-*.zip` from the [releases page](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/tag/v2.6.8-beta.1).
 2. Optionally verify it against the published `.sha256` file.
 3. Flash the ZIP from your root manager:
    - **Magisk** — *Modules* &rarr; *Install from storage* &rarr; select the ZIP
@@ -267,7 +271,7 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the design
 
 ## Project Info
 
-- **Current release:** v2.6.7 (Stable channel)
+- **Current release:** v2.6.8-beta.1 (Beta testing channel)
 - **Module ID:** `p9pxl_supercharger`
 - **Developed by:** [Drizzy07x](https://github.com/Drizzy07x)
 - **Changelog:** [changelog.md](changelog.md)

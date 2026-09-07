@@ -108,6 +108,14 @@ The suite now contains 17 Node tests and 47 Python tests. Browser checks use a
 temporary preview bridge and therefore establish UI behavior only; device ART,
 root-manager lifecycle events, and real resource savings remain unverified.
 
+## Release packaging regressions
+
+`scripts/test_build_release.py` adds six tests for the package allowlist, Unix
+modes, byte-for-byte repeatability, checksum/manifest consistency, rejection of
+bad metadata, existing-output protection, and unsafe archive entries. The release
+preparation suite contains 17 Node and 53 Python tests. CI also runs the actual
+clean-commit builder before any tag is published. See [Releasing](RELEASING.md).
+
 ## Device validation remains separate
 
 Host Bash behavior is not proof of Android `/system/bin/sh`, ART, root-manager

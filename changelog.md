@@ -1,5 +1,47 @@
 # Pixel 9 Series Supercharger Changelog
 
+## v2.6.8-beta.1
+
+> **Prerelease for controlled testing.** This build has not been validated on a
+> rooted Pixel. Host/CI tests do not establish Android boot stability, ART behavior,
+> root-manager integration, battery savings, or thermal performance.
+
+### WebUI and app optimization
+
+- Task progress combines state and bounded log output in one bridge call. Hidden
+  dashboards stop polling and reconcile current or completed work on return.
+- App inventories use two batched package queries with core-package exclusions;
+  the dashboard caches results for one minute with explicit refresh/invalidation.
+- Normal ART requests are incremental, with background priority and detailed
+  outcomes when supported. Forced recompilation is an explicit selected-app action.
+- Removed the automatic forced verification fallback; failed ART results are
+  recognized even when the command exits with code zero.
+
+### Reliability and packaging
+
+- Background jobs own their lifecycle state, retain their final results, and
+  preserve labels across worker calls and concurrent requests.
+- Kernel-managed guards serialize lock recovery and release after process death.
+- The dashboard updater exits on termination. Install/update/uninstall handling
+  preserves profile selections and external thermal-registry data as documented.
+- Release validation rejects malformed/NUL ZIP names, unsafe paths, runtime files,
+  unexpected types/permissions, and CRLF scripts. Host tests contain descendants
+  on Windows and Linux.
+
+### Testing and installation
+
+- Install manually through the root manager, then reboot. Thermal Control starts
+  off. Capture a support snapshot before reporting a problem.
+- Test fresh installation, update from the previous stable release, clean boot,
+  normal/forced ART actions, hidden-WebUI completion, profile persistence, and
+  Thermal Control enable/disable with reboot.
+- If the phone does not boot normally, use the root manager's supported module
+  disable/recovery procedure. Keep the previous stable ZIP available.
+- This beta uses versionCode 26008. Any subsequent release intended to appear as
+  an in-app update must use a higher code; do not reuse it for a final release.
+- The module update URL still follows stable release assets. The beta is not an
+  automatic update for existing stable installations.
+
 ## v2.6.7
 
 ### Packaging and Documentation

@@ -22,7 +22,8 @@ thermal limits, or override charging behavior.
 - `webroot/`: standalone HTML/ES modules and the KernelSU bridge; no npm build.
 - `thermal_profiles/`: bundled opt-in overlays, never active `system/vendor/etc` files.
 - `scripts/`: Python release validation and Node/Python regression tests.
-- `.github/workflows/release.yml`: tag/version gate and explicit package allowlist.
+- `scripts/build_release.py`: clean-commit snapshot, package allowlist, deterministic ZIP and manifest.
+- `.github/workflows/release.yml`: tag/version gate, shared builder, and publication.
 
 ## Validation and releases
 
@@ -35,6 +36,9 @@ thermal limits, or override charging behavior.
   Keep normal compilation non-forced, preserve package exclusions, and probe
   optional ART flags. Forced recompilation is an explicit selected-app action.
 - Release validation changes need Python regression coverage in `scripts/test_*.py`.
+- Build release assets with `python scripts/build_release.py --output <outside-source-directory>`
+  only from a clean commit. Do not push a release tag merely to prepare artifacts:
+  the tag workflow can publish. See `docs/RELEASING.md`.
 - Worker/lock/status lifecycle changes need `scripts/test_task_lifecycle.py` coverage.
 - Keep the `.lock.guard` files at stable paths; never unlink them during runtime.
   Their kernel locks cover directory acquisition/recovery, not whole task execution.
