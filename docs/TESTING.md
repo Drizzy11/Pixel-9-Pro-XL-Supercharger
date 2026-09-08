@@ -92,10 +92,16 @@ Check the latest commit's results on
 
 ## WebUI and ART efficiency regressions
 
-`scripts/webui_regression.test.mjs` now includes 17 tests. New cases cover one
+`scripts/webui_regression.test.mjs` now includes 27 tests. New cases cover one
 progress bridge call, hidden/visible transitions, late responses, completion while
 hidden, cache expiry, refresh coalescing, invalidation during an in-flight request,
 error handling, and the explicit selected-app recompilation action.
+
+Visibility regressions also defer profile writes, Thermal Control writes, and
+maintenance/optimization launch responses across a hide/show cycle. Controls and
+command guards remain locked until each command settles, including its status
+refresh when applicable. Both success and failure release the command lock;
+launches acknowledged while hidden retain the task lock until polling resumes.
 
 `scripts/test_optimization_policy.py` adds 10 host-only shell tests. Fixtures check
 two package inventory queries, preservation of user scope and core exclusions,
@@ -104,7 +110,7 @@ batch, non-forced commands, zero-exit failure results, and bounded progress outp
 No forced `verify` fallback is sent. Without verbose ART output, accepted requests
 are reported without claiming that compilation was performed.
 
-The suite now contains 17 Node tests and 47 Python tests. Browser checks use a
+The module suite now contains 27 Node tests and 47 Python tests. Browser checks use a
 temporary preview bridge and therefore establish UI behavior only; device ART,
 root-manager lifecycle events, and real resource savings remain unverified.
 

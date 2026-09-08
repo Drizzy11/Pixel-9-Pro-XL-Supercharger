@@ -316,6 +316,89 @@ test('hidden-page polling stops, ignores late responses, and renders completion 
   statusExtra = '';
 });
 
+for (const [button, command] of [
+  ['setGamingBtn', ' set-profile '],
+  ['thermalEnableBtn', ' thermal-enable'],
+  ['optimizeAllBtn', ' optimize-apps-async'],
+  ['maintenanceAllBtn', ' maintenance-all-async']
+]) {
+  for (const errno of [0, 1]) {
+    test(`visibility return preserves a pending ${button} command until ${errno ? 'failure' : 'success'} settles`, async () => {
+      const originalExec = globalThis.ksu.exec;
+      const pendingCommands = [];
+      let operation;
+      globalThis.ksu.exec = (cmd, options, callback) => {
+        if (cmd.includes(command)) { pendingCommands.push(callback); return; }
+        originalExec(cmd, options, callback);
+      };
+      try {
+        operation = elements.get(button).dispatch('click');
+        assert.equal(pendingCommands.length, 1);
+        document.hidden = true;
+        await documentListeners.get('visibilitychange')();
+        document.hidden = false;
+        await documentListeners.get('visibilitychange')();
+        for (const id of ['setGamingBtn', 'thermalEnableBtn', 'optimizeAllBtn', 'maintenanceAllBtn']) {
+          assert.equal(elements.get(id).disabled, true, `${id} unlocked during ${button}`);
+        }
+        // Dispatch even on a disabled control to verify the command guard too.
+        await elements.get(button).dispatch('click');
+        assert.equal(pendingCommands.length, 1, 'a second write reached the bridge');
+        deferStatus = true;
+        for (const callback of pendingCommands.splice(0)) globalThis[callback](errno, 'Finished', errno ? 'write failed' : '');
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (errno === 0 || button === 'optimizeAllBtn' || button === 'maintenanceAllBtn') {
+          assert.ok(pendingStatusCallbacks.length, 'completion should refresh status');
+          assert.equal(elements.get(button).disabled, true, 'completion refresh unlocked controls early');
+        } else {
+          const box = button === 'setGamingBtn' ? 'profileBox' : 'thermalBox';
+          assert.match(elements.get(box).textContent, /write failed/);
+        }
+      } finally {
+        document.hidden = false;
+        deferStatus = false;
+        globalThis.ksu.exec = originalExec;
+        for (const callback of pendingCommands.splice(0)) globalThis[callback](1, '', 'test cleanup');
+        for (const callback of pendingStatusCallbacks.splice(0)) globalThis[callback](0, statusText, '');
+        await operation;
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      assert.equal(elements.get(button).disabled, false, 'settled command left controls locked');
+      assert.equal(activeIntervals.size, 0);
+    });
+  }
+}
+
+for (const [button, command] of [
+  ['optimizeAllBtn', ' optimize-apps-async'],
+  ['maintenanceAllBtn', ' maintenance-all-async']
+]) {
+  test(`a ${button} launch acknowledged while hidden retains its task lock`, async () => {
+    const originalExec = globalThis.ksu.exec;
+    let acknowledge;
+    globalThis.ksu.exec = (cmd, options, callback) => {
+      if (cmd.includes(command)) { acknowledge = callback; return; }
+      originalExec(cmd, options, callback);
+    };
+    try {
+      const operation = elements.get(button).dispatch('click');
+      document.hidden = true;
+      await documentListeners.get('visibilitychange')();
+      globalThis[acknowledge](0, 'Started', '');
+      await operation;
+      assert.equal(elements.get(button).disabled, true);
+      assert.equal(activeIntervals.size, 0);
+    } finally {
+      globalThis.ksu.exec = originalExec;
+      document.hidden = false;
+      await documentListeners.get('visibilitychange')();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    assert.equal(elements.get(button).disabled, false);
+    assert.equal(activeIntervals.size, 0);
+  });
+}
+
 test('an inventory response from before visibility invalidation cannot repopulate the cache', async () => {
   deferApps = true;
   const original = elements.get('refreshAppsBtn').dispatch('click');

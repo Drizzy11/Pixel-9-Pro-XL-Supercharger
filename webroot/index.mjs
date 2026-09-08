@@ -9,6 +9,8 @@ let currentLog = 'debug.log';
 let logRequest = 0;
 let appEntries = [];
 let commandBusy = false;
+let commandPending = false;
+let taskBusy = false;
 let statusReady = false;
 let appSelectionAvailable = false;
 const taskPollers = {
@@ -77,12 +79,18 @@ function updateOptimizeSelectedButton(){
   });
 }
 function setActionsBusy(busy){
-  commandBusy = busy;
-  $$('button.action, button.safe, button.warnBtn').forEach(btn => { btn.disabled = busy; });
+  taskBusy = busy;
+  commandBusy = taskBusy || commandPending;
+  $$('button.action, button.safe, button.warnBtn').forEach(btn => { btn.disabled = commandBusy; });
   updateStatusActionButtons();
   updateProfileButtons();
   updateThermalButtons();
   updateOptimizeSelectedButton();
+}
+function setCommandPending(pending){
+  // Status/visibility refreshes cannot release a command that still owns a write.
+  commandPending = pending;
+  setActionsBusy(taskBusy);
 }
 function showHeaderTask(label){ setText('#statusValue', 'Running'); setText('#statusSub', label || 'Background task in progress'); }
 
@@ -484,12 +492,12 @@ function stopTimer(kind){
 function startTaskPolling(kind, label){
   stopTimer(kind);
   const poller = taskPollers[kind];
+  setActionsBusy(true);
   if(document.hidden){ poller.needsRefresh = true; return; }
   const box = kind === 'app' ? '#optimizationBox' : '#maintenanceBox';
   const field = kind === 'app' ? 'APP_OPT_TASK_STATE' : 'MAINTENANCE_TASK_STATE';
   let generation = poller.generation;
   showHeaderTask(label);
-  setActionsBusy(true);
   const poll = async () => {
     if(document.hidden || poller.inFlight || generation !== poller.generation) return;
     poller.inFlight = true;
@@ -523,7 +531,7 @@ function startMaintenancePolling(label){ startTaskPolling('maintenance', label);
 
 async function runOptimization(label, startCmd){
   if(commandBusy) return;
-  setActionsBusy(true);
+  setCommandPending(true);
   showHeaderTask(label);
   $('#optimizationBox').textContent = 'Starting task…';
   try {
@@ -534,12 +542,14 @@ async function runOptimization(label, startCmd){
     setActionsBusy(false);
     await refreshStatus().catch(() => {});
     $('#optimizationBox').textContent = `Could not start optimization:\n${e.message}`;
+  } finally {
+    setCommandPending(false);
   }
 }
 
 async function runMaintenance(label, startCmd){
   if(commandBusy) return;
-  setActionsBusy(true);
+  setCommandPending(true);
   showHeaderTask(label);
   $('#maintenanceBox').textContent = 'Starting maintenance…';
   try {
@@ -550,12 +560,14 @@ async function runMaintenance(label, startCmd){
     setActionsBusy(false);
     await refreshStatus().catch(() => {});
     $('#maintenanceBox').textContent = `Could not start maintenance:\n${e.message}`;
+  } finally {
+    setCommandPending(false);
   }
 }
 
 async function setProfile(profile){
   if(commandBusy) return;
-  setActionsBusy(true);
+  setCommandPending(true);
   $('#profileBox').textContent = 'Saving profile selection…';
   try {
     const out = await sh(`sh '${CTL}' set-profile ${shellQuote(profile)}`);
@@ -564,13 +576,13 @@ async function setProfile(profile){
   } catch(e){
     $('#profileBox').textContent = `Could not update profile:\n${e.message}`;
   } finally {
-    setActionsBusy(false);
+    setCommandPending(false);
   }
 }
 
 async function runThermal(command, label){
   if(commandBusy) return;
-  setActionsBusy(true);
+  setCommandPending(true);
   $('#thermalBox').textContent = `${label}…`;
   try {
     const out = await sh(`sh '${CTL}' ${command}`);
@@ -579,7 +591,7 @@ async function runThermal(command, label){
   } catch(e){
     $('#thermalBox').textContent = `Could not update Thermal Control:\n${e.message}`;
   } finally {
-    setActionsBusy(false);
+    setCommandPending(false);
   }
 }
 
