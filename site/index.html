@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090c12">
+  <title>Supercharger — Thoughtful tuning for Pixel 9</title>
+  <meta name="description" content="Systemless performance, thermal, and maintenance tuning for the Pixel 9 series. Explore Supercharger, check compatibility, and download from GitHub.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Supercharger — Your Pixel. More in tune.">
+  <meta property="og:description" content="Thoughtful performance tuning for the Pixel 9 series. Systemless, transparent, and always in your control.">
+  <meta property="og:image" content="https://drizzy07x.github.io/Supercharger_Pixel_9_Series/assets/social-preview.png">
+  <meta property="og:url" content="https://drizzy07x.github.io/Supercharger_Pixel_9_Series/">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://drizzy07x.github.io/Supercharger_Pixel_9_Series/">
+  <link rel="icon" href="./assets/icon.png" type="image/png">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./pages.css">
+  <link rel="alternate" hreflang="en" href="https://drizzy07x.github.io/Supercharger_Pixel_9_Series/">
+  <link rel="alternate" hreflang="es" href="https://drizzy07x.github.io/Supercharger_Pixel_9_Series/es/">
+  <link rel="preload" href="./assets/fonts/manrope-variable.ttf" as="font" type="font/ttf" crossorigin>
+  <script src="./main.js" defer></script>
+  <script type="module" src="./site.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="header wrap">
+    <a class="brand" href="#" aria-label="Supercharger home"><img src="./assets/icon.png" width="38" height="38" alt="">Supercharger</a>
+    <nav aria-label="Main navigation">
+      <a href="./guide.html">Guide</a>
+      <a href="./tools.html">Tools</a>
+      <a href="./releases.html">Versions</a>
+      <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">GitHub</a>
+      <a class="language-link" href="./es/index.html" lang="es" hreflang="es">Español</a>
+    </nav>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title">Your Pixel.<br><span>More in tune.</span></h1>
+        <p class="intro">Thoughtful performance tuning for the Pixel 9 series. Systemless, transparent, and always in your control.</p>
+        <div class="actions">
+          <a class="button primary" href="#install">Get Supercharger</a>
+          <a class="button secondary" href="#features">Explore the features</a>
+        </div>
+        <p class="hero-meta">Pixel 9 series / Tensor G4 / Root required</p>
+      </div>
+      <img class="hero-art" src="./assets/lightning-premium-800.webp" srcset="./assets/lightning-premium-400.webp 400w, ./assets/lightning-premium-800.webp 800w, ./assets/lightning-premium-1200.webp 1200w" sizes="(max-width: 720px) 280px, (max-width: 1050px) 42vw, 620px" width="1254" height="1254" alt="" fetchpriority="high">
+    </section>
+    <section class="features wrap" id="features" aria-label="Supercharger features">
+      <article><span class="feature-number" aria-hidden="true">01</span><h2>Conservative by design</h2><p>Best-effort tuning with graceful fallbacks. No forced clocks in the stable profile.</p></article>
+      <article><span class="feature-number" aria-hidden="true">02</span><h2>Thermals on your terms</h2><p>Thermal Control starts off. Enable it yourself after confirming a clean boot.</p></article>
+      <article><span class="feature-number" aria-hidden="true">03</span><h2>Everything, in view.</h2><p>Manage profiles, maintenance, optimization, and logs from the WebUI.</p></article>
+    </section>
+    <section class="dashboard wrap" aria-labelledby="dashboard-title">
+      <h2 id="dashboard-title">A clearer view of your Pixel.</h2>
+      <p class="section-intro">Profiles, maintenance, and diagnostics. All in one dashboard.</p>
+      <div class="preview-controls" hidden role="tablist" aria-label="Dashboard previews">
+        <button id="tab-overview" type="button" role="tab" aria-selected="true" aria-controls="preview-overview">Overview</button>
+        <button id="tab-profiles" type="button" role="tab" aria-selected="false" aria-controls="preview-profiles" tabindex="-1">Profiles</button>
+        <button id="tab-maintenance" type="button" role="tab" aria-selected="false" aria-controls="preview-maintenance" tabindex="-1">Maintenance</button>
+      </div>
+      <div class="preview-gallery">
+        <figure id="preview-overview" class="preview-panel">
+          <a class="preview-frame" href="./assets/webui-overview-1000.webp" aria-label="Enlarge Overview preview"><img src="./assets/webui-overview-800.webp" srcset="./assets/webui-overview-480.webp 480w, ./assets/webui-overview-800.webp 800w, ./assets/webui-overview-1000.webp 1000w" sizes="(max-width: 720px) calc(100vw - 60px), 900px" width="1000" height="1053" loading="lazy" alt="Supercharger WebUI overview with sample module health, active profile, device, and thermal status"><span class="preview-hint">Enlarge preview <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></span></a>
+          <figcaption>Dashboard preview with sample values. Actual readings depend on your device.</figcaption>
+        </figure>
+        <figure id="preview-profiles" class="preview-panel">
+          <a class="preview-frame" href="./assets/webui-profiles-1000.webp" aria-label="Enlarge Profiles preview"><img src="./assets/webui-profiles-800.webp" srcset="./assets/webui-profiles-480.webp 480w, ./assets/webui-profiles-800.webp 800w, ./assets/webui-profiles-1000.webp 1000w" sizes="(max-width: 720px) calc(100vw - 60px), 900px" width="1000" height="1666" loading="lazy" alt="Supercharger WebUI performance profile selection and opt-in Integrated Thermal Control"><span class="preview-hint">Enlarge preview <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></span></a>
+          <figcaption>Choose Active Smooth or the experimental Performance / Gaming profile. Reboot after switching.</figcaption>
+        </figure>
+        <figure id="preview-maintenance" class="preview-panel">
+          <a class="preview-frame" href="./assets/webui-maintenance-1000.webp" aria-label="Enlarge Maintenance preview"><img src="./assets/webui-maintenance-800.webp" srcset="./assets/webui-maintenance-480.webp 480w, ./assets/webui-maintenance-800.webp 800w, ./assets/webui-maintenance-1000.webp 1000w" sizes="(max-width: 720px) calc(100vw - 60px), 900px" width="1000" height="1486" loading="lazy" alt="Supercharger WebUI maintenance, support snapshot, and app optimization tools"><span class="preview-hint">Enlarge preview <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></span></a>
+          <figcaption>Run maintenance, manage app optimization, and collect a support snapshot from your device.</figcaption>
+        </figure>
+      </div>
+      <div class="profile-comparison" aria-labelledby="profiles-title">
+        <h3 id="profiles-title">A profile for your day.</h3>
+        <div class="profile-columns">
+          <article><h4>Active Smooth <span>Default</span></h4><p>For everyday use, with conservative tuning focused on consistent responsiveness. The stable profile does not force CPU or GPU clocks.</p></article>
+          <article><h4>Performance / Gaming <span>Experimental</span></h4><p>For gaming sessions and heavier foreground workloads. Uses additional GPU tuning where supported; rejected settings are left unchanged.</p></article>
+        </div>
+        <p class="profile-note">Reboot after switching. Results depend on your device and kernel; performance gains are not guaranteed.</p>
+      </div>
+    </section>
+    <section class="compatibility" id="compatibility" aria-labelledby="compatibility-title">
+      <div class="wrap">
+        <div class="compatibility-grid">
+          <div><h2 id="compatibility-title">Made for Tensor G4.</h2>
+            <ul class="requirements"><li>Android 16 QPR3+ or Android 17</li><li>Unlocked bootloader</li><li>Magisk 30.7+ / KernelSU / APatch</li><li>WebUI support required</li></ul>
+          </div>
+          <table><caption class="sr-only">Supported Pixel 9 devices and installer codenames</caption><thead class="sr-only"><tr><th scope="col">Device</th><th scope="col">Codename</th></tr></thead><tbody>
+            <tr><th scope="row">Pixel 9</th><td>tokay</td></tr><tr><th scope="row">Pixel 9 Pro</th><td>caiman</td></tr><tr><th scope="row">Pixel 9 Pro XL</th><td>komodo</td></tr><tr><th scope="row">Pixel 9 Pro Fold</th><td>comet</td></tr>
+          </tbody></table>
+        </div>
+        <p class="tool-entry"><a href="./tools.html#requirements">Check your setup</a> · <a href="./tools.html#verify">Verify a ZIP locally</a></p><p class="thermal-note">Thermal Control on KernelSU / APatch 3.x requires an overlay-capable metamodule. <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series#integrated-thermal-control">Read the requirements<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></a></p>
+      </div>
+    </section>
+    <section class="install" id="install" aria-labelledby="install-title">
+      <div class="wrap install-grid">
+        <div><h2 id="install-title">Ready when you are.</h2>
+          <!-- release:start -->
+          <p class="release-meta"><strong>v2.6.7 · Stable</strong><br>Published <time datetime="2026-07-30">2026-07-30</time> · 67.1 KiB</p>
+          <a class="button blue" href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/download/v2.6.7/Pixel-9-Series-Supercharger-v2.6.7.zip">Download v2.6.7 ZIP</a>
+          <div class="release-links"><a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/tag/v2.6.7">Release notes</a><a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/download/v2.6.7/Pixel-9-Series-Supercharger-v2.6.7.zip.sha256">SHA-256 file</a><a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/latest">All release assets</a></div>
+          <p class="release-help">Download the ZIP and its SHA-256 file to check integrity. <a href="#verify-download">How to verify</a></p>
+          <!-- release:end -->
+          <p>Thermal Control stays off until you enable it.<br>Reboot after changing profiles.</p>
+        </div>
+        <ol class="install-steps"><li><span aria-hidden="true">01</span><div>Download the module ZIP<small>Use the release asset, not the source code archive.</small></div></li><li><span aria-hidden="true">02</span><div>Install in your root manager<small>Open Modules and select the downloaded ZIP.</small></div></li><li><span aria-hidden="true">03</span><div>Reboot and open the WebUI<small>Find Supercharger in your root manager.</small></div></li></ol>
+      </div>
+    </section>
+    <section class="faq wrap" aria-labelledby="faq-title">
+      <h2 id="faq-title">A few things before you install.</h2>
+      <details><summary>Does my Pixel need root?<svg class="disclosure-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12"/><path class="vertical" d="M10 4v12"/></svg></summary><p>Yes. You need a supported Pixel 9 device, an unlocked bootloader, and Magisk, KernelSU, or APatch. Magisk installations require version 30.7 or newer. Check the <a href="#compatibility">compatibility requirements</a> before downloading.</p></details>
+      <details><summary>How do I open the dashboard?<svg class="disclosure-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12"/><path class="vertical" d="M10 4v12"/></svg></summary><p>After installing and rebooting, find Supercharger in your root manager and open its WebUI. Your root manager or companion app must support module WebUIs. If the entry is missing, check your manager's WebUI support.</p></details>
+      <details><summary>Why is Thermal Control off?<svg class="disclosure-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12"/><path class="vertical" d="M10 4v12"/></svg></summary><p>It is off by default so you can first confirm a normal boot. Enable it from Profiles in the WebUI, then reboot. KernelSU / APatch 3.x also requires an overlay-capable metamodule such as meta-overlayfs or meta-magicmount; Supercharger does not bundle one.</p></details>
+      <details id="verify-download"><summary>How do I verify the download?<svg class="disclosure-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12"/><path class="vertical" d="M10 4v12"/></svg></summary><p>Download the module ZIP and its matching SHA-256 file. Compare the ZIP's SHA-256 hash with the value in that file. Run the command from the folder containing the ZIP and checksum. In PowerShell, compare the returned hash with the SHA-256 file:</p><pre><code id="verify-powershell">Get-FileHash -Algorithm SHA256 .\Pixel-9-Series-Supercharger-v2.6.7.zip</code></pre><button class="copy-button" type="button" data-copy="verify-powershell">Copy command</button><p>On Linux, put both files in the same folder and run:</p><pre><code id="verify-linux">sha256sum -c Pixel-9-Series-Supercharger-v2.6.7.zip.sha256</code></pre><button class="copy-button" type="button" data-copy="verify-linux">Copy command</button><p>A matching hash confirms file integrity. If it does not match, download the files again before installing.</p></details>
+      <details><summary>How do updates and uninstalling work?<svg class="disclosure-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12"/><path class="vertical" d="M10 4v12"/></svg></summary><p>Flash a newer module ZIP over the installed version and reboot; your selected performance and thermal profiles are preserved. To uninstall, remove Supercharger from your root manager and reboot. Uninstall clears Supercharger's saved state.</p></details>
+      <details><summary>Where can I get help?<svg class="disclosure-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12"/><path class="vertical" d="M10 4v12"/></svg></summary><p>Read the <a href="./guide.html#troubleshooting">troubleshooting guide</a>. For a bug report, run maintenance in the WebUI, then load the support snapshot from the Support tab and attach it to your report.</p></details>
+    </section>
+  </main>
+  <dialog class="image-viewer" aria-labelledby="viewer-title" aria-describedby="viewer-help">
+    <div class="viewer-header"><h2 id="viewer-title">Dashboard preview</h2><form method="dialog"><button class="viewer-close" autofocus>Close preview</button></form></div>
+    <div class="viewer-tools"><button type="button" id="viewer-zoom" aria-pressed="false">Actual size</button><p id="viewer-help">Sample values. Use Actual size to read details, then scroll the image.</p></div>
+    <div class="viewer-canvas" tabindex="0" role="region" aria-label="Enlarged screenshot"><img id="viewer-image" alt=""></div>
+  </dialog>
+  <footer class="footer wrap">
+    <div><a class="brand" href="#"><img src="./assets/icon.png" width="32" height="32" alt="">Supercharger</a><p>Open source. Built with care by <a href="https://github.com/Drizzy07x">Drizzy07x</a>.</p></div>
+    <nav aria-label="Project resources"><a href="./guide.html">Documentation</a><a href="./tools.html#report">Report an issue</a><a href="./releases.html">Version history</a><a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/blob/main/LICENSE">MIT license</a></nav>
+  </footer>
+  <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
+</body>
+</html>

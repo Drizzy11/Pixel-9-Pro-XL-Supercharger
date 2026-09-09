@@ -1,0 +1,84 @@
+.header nav { flex-wrap: wrap; gap: 10px 26px; }
+.tool-entry { display: flex; flex-wrap: wrap; gap: 12px; font-size: 14px; line-height: 1.8; color: var(--blue); }
+.tool-entry a { text-decoration: underline; text-underline-offset: 4px; }
+html[lang="es"] .hero h1 { font-size: clamp(38px,5.8vw,86px); }
+.language-link { border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; color: var(--blue); }
+.subpage { padding-block: 58px 80px; }
+.page-heading { max-width: 780px; margin-bottom: 46px; }
+.page-heading h1 { font-size: clamp(38px,5vw,64px); line-height: 1.15; }
+.page-heading p, .tool-section > p, .release-card > p { color: var(--muted); font-size: 16px; line-height: 1.9; }
+.guide-layout { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 50px; }
+.guide-nav nav { display: flex; flex-direction: column; align-items: stretch; gap: 4px; position: sticky; top: 24px; }
+.guide-nav a { border-left: 1px solid var(--line); padding-left: 16px; }
+.guide-nav a:hover { border-color: var(--blue); color: var(--blue); }
+.guide-section { padding-bottom: 38px; margin-bottom: 38px; border-bottom: 1px solid var(--line); scroll-margin-top: 28px; }
+.prose { min-width: 0; }
+.prose h2, .tool-section h2 { font-size: 32px; }
+.prose h3 { font-size: 20px; font-weight: 550; margin-top: 26px; }
+.prose p, .prose li { font-size: 15px; line-height: 1.95; color: #b0bdcf; overflow-wrap: anywhere; }
+.prose a, .tool-section p a, .release-card > a { color: var(--blue); text-decoration: underline; text-underline-offset: 4px; }
+.command { border: 1px solid var(--line); border-radius: 8px; background: #111c2a; padding: 12px; display: flex; gap: 12px; align-items: center; }
+.command pre { flex: 1; min-width: 0; overflow: auto; margin: 0; padding: 10px; font-size: 13px; }
+.command button { flex-shrink: 0; }
+.command button, .copy-button { font: 500 13px Manrope,sans-serif; color: var(--blue); border: 1px solid #3a4d67; border-radius: 6px; background: #142237; min-height: 44px; padding: 10px 14px; cursor: pointer; }
+.copy-status:not(:empty) { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; border: 1px solid #59759b; border-radius: 8px; padding: 12px 20px; background: #15243a; box-shadow: 0 8px 40px #0008; max-width: calc(100% - 32px); font-size: 13px; }
+.tool-nav { display: flex; flex-wrap: wrap; gap: 24px; margin-bottom: 30px; color: var(--blue); }
+.tool-section { border: 1px solid var(--line); border-radius: 12px; padding: 32px; background: #0e151f; margin-bottom: 32px; scroll-margin-top: 24px; }
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 28px; }
+fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+#tools-loading { color: var(--muted); line-height: 1.8; }
+label { display: flex; flex-direction: column; gap: 10px; font-size: 14px; color: #cbd6e6; }
+input, select, textarea { width: 100%; min-width: 0; border: 1px solid #3c4c63; border-radius: 7px; color: var(--ink); background: #111c2a; padding: 13px; font: 400 15px/1.5 Manrope,sans-serif; }
+input,select { min-height: 50px; }
+input:focus-visible,select:focus-visible,textarea:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+textarea { resize: vertical; }
+.full-field { grid-column: 1/-1; }
+.field-grid > button { justify-self: start; align-self: end; }
+.result { padding: 22px; border: 1px solid #617ba0; border-radius: 8px; margin-top: 24px; background: #142035; font-size: 15px; line-height: 1.8; overflow-wrap: anywhere; }
+.result[data-state="ready"] { border-color: #65b994; background: #10291f; }
+.result[data-state="blocked"] { border-color: #d18f96; background: #321b24; }
+.result p { margin-bottom: 0; }
+.hash-value { display: block; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; margin-top: 16px; color: #c3d7f5; }
+#zip-file { display: block; margin: 12px 0 20px; }
+#zip-file::file-selector-button { border: 1px solid #557299; background: #1a2d49; color: var(--ink); border-radius: 5px; padding: 10px; margin-right: 12px; }
+button:disabled { opacity: .55; cursor: wait; transform: none; }
+#report-output { margin-top: 28px; }
+#report-output p { color: var(--muted); line-height: 1.8; }
+#report-draft { margin-top: 12px; font-family: Consolas,monospace; font-size: 13px; }
+.release-card { border-top: 1px solid var(--line); padding: 28px 0 36px; }
+.release-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.release-heading h2 { font-size: 29px; margin: 0; }
+.release-heading span { color: var(--muted); font-size: 13px; }
+.release-card details { margin: 22px 0; border: 1px solid var(--line); border-radius: 8px; background: #0f1722; }
+.release-card summary { cursor: pointer; padding: 18px; font-size: 14px; }
+.release-source { padding: 0 22px 22px; }
+.release-source pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.not-found { padding-block: 70px; max-width: 850px; }
+.not-found .feature-number { margin-top: 70px; }
+.not-found h1 { font-size: clamp(42px,7vw,72px); }
+.not-found p { color: var(--muted); line-height: 1.9; }
+.not-found [lang="es"] { margin-top: 60px; padding-top: 32px; border-top: 1px solid var(--line); }
+.not-found h2 { font-size: 28px; }
+.faq .copy-button { margin: 0 25px 20px; }
+@media(max-width:720px) {
+ .header nav { justify-content: flex-start; gap: 8px 14px; font-size: 12px; }
+ .header .language-link { margin-left: auto; }
+ html[lang="es"] .hero h1 { font-size: clamp(34px,10.3vw,70px); }
+ .subpage { padding-block: 38px 44px; }
+ .page-heading { margin-bottom: 30px; }
+ .page-heading h1 { font-size: 38px; }
+ .page-heading p { font-size: 15px; }
+ .guide-layout { grid-template-columns: 1fr; gap: 30px; }
+ .guide-nav nav { position: static; display: grid; grid-template-columns: 1fr 1fr; font-size: 12px; }
+ .prose h2,.tool-section h2 { font-size: 27px; }
+ .prose p,.prose li { font-size: 14px; }
+ .tool-section { padding: 22px 18px; }
+ .tool-section > p { font-size: 14px; }
+ .field-grid { grid-template-columns: 1fr; gap: 18px; }
+ .full-field { grid-column: auto; }
+ .command { flex-direction: column; align-items: stretch; }
+ .command pre { flex: auto; }
+ .command button { align-self: flex-start; }
+ .release-heading { align-items: flex-start; flex-direction: column; }
+ .tool-nav { gap: 12px 24px; font-size: 13px; }
+}
