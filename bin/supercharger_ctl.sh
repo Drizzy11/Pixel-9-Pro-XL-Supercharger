@@ -12,6 +12,8 @@ PIDFILE="$MODDIR/dashboard_updater.pid"
 LOCKDIR="$MODDIR/.dashboard_updater.lock"
 MAINT_LOCKDIR="$MODDIR/.maintenance.lock"
 APP_LOCKDIR="$MODDIR/.app_optimization.lock"
+MAINT_ASYNC_LOCKDIR="$MODDIR/.maintenance_task.lock"
+APP_ASYNC_LOCKDIR="$MODDIR/.app_optimization_task.lock"
 APP_OPT_LOG="$MODDIR/app_optimization.log"
 APP_OPT_STATE="$MODDIR/app_optimization.env"
 APP_OPT_PIDFILE="$MODDIR/app_optimization.pid"
@@ -60,8 +62,8 @@ set_module_description() {
 }
 
 write_env_pair() {
-  key="$1"
-  value="$(printf "%s" "$2" | tr -d '
+  local key="$1"
+  local value="$(printf "%s" "$2" | tr -d '
 ')"
   printf '%s="%s"
 ' "$key" "$value"
@@ -72,7 +74,8 @@ env_value() {
     local file="$2"
     local line=""
     local value=""
-    [ -n "$key" ] && [ -r "$file" ] || return 0
+    [ -n "$key" ] || return 0
+    [ "$file" = "-" ] || [ -r "$file" ] || return 0
     line="$(grep -m 1 "^${key}=" "$file" 2>/dev/null)"
     [ -n "$line" ] || return 0
     value="${line#*=}"
@@ -763,47 +766,15 @@ write_status() {
   updater_pid="${updater_info%%|*}"
   updater_status="${updater_info#*|}"
 
-  maintenance_task_state="idle"
-  maintenance_task_label="No maintenance task running"
-  maintenance_task_pid=""
-  if maintenance_running; then
-    maintenance_task_pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
-    maintenance_task_state="running"
-    maintenance_task_label="$(env_value LABEL "$MAINT_STATE")"
-    [ -z "$maintenance_task_label" ] && maintenance_task_label="One-tap maintenance"
-  elif [ -f "$MAINT_STATE" ]; then
-    maintenance_task_state="$(env_value STATE "$MAINT_STATE")"
-    maintenance_task_label="$(env_value LABEL "$MAINT_STATE")"
-    [ -z "$maintenance_task_state" ] && maintenance_task_state="idle"
-    [ -z "$maintenance_task_label" ] && maintenance_task_label="No maintenance task running"
-    if [ "$maintenance_task_state" = "running" ]; then
-      rm -f "$MAINT_PIDFILE" 2>/dev/null
-      [ -z "$maintenance_task_label" ] && maintenance_task_label="One-tap maintenance"
-      maintenance_task_state="interrupted"
-      write_maintenance_state "interrupted" "$maintenance_task_label" ""
-    fi
-  fi
-
-  app_opt_task_state="idle"
-  app_opt_task_label="No app optimization running"
-  app_opt_task_pid=""
-  if app_opt_running; then
-    app_opt_task_pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
-    app_opt_task_state="running"
-    app_opt_task_label="$(env_value LABEL "$APP_OPT_STATE")"
-    [ -z "$app_opt_task_label" ] && app_opt_task_label="App optimization"
-  elif [ -f "$APP_OPT_STATE" ]; then
-    app_opt_task_state="$(env_value STATE "$APP_OPT_STATE")"
-    app_opt_task_label="$(env_value LABEL "$APP_OPT_STATE")"
-    [ -z "$app_opt_task_state" ] && app_opt_task_state="idle"
-    [ -z "$app_opt_task_label" ] && app_opt_task_label="No app optimization running"
-    if [ "$app_opt_task_state" = "running" ]; then
-      rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-      [ -z "$app_opt_task_label" ] && app_opt_task_label="App optimization"
-      app_opt_task_state="interrupted"
-      write_app_opt_state "interrupted" "$app_opt_task_label" ""
-    fi
-  fi
+  # Status reads must never rewrite a worker's newer completion record.
+  local maintenance_snapshot="$(maintenance_status)"
+  local app_snapshot="$(app_opt_status)"
+  maintenance_task_state="$(printf '%s\n' "$maintenance_snapshot" | env_value STATE -)"
+  maintenance_task_label="$(printf '%s\n' "$maintenance_snapshot" | env_value LABEL -)"
+  maintenance_task_pid="$(printf '%s\n' "$maintenance_snapshot" | env_value PID -)"
+  app_opt_task_state="$(printf '%s\n' "$app_snapshot" | env_value STATE -)"
+  app_opt_task_label="$(printf '%s\n' "$app_snapshot" | env_value LABEL -)"
+  app_opt_task_pid="$(printf '%s\n' "$app_snapshot" | env_value PID -)"
 
   task_state="idle"
   task_label="No maintenance task running"
@@ -824,6 +795,7 @@ write_status() {
   api_tmp="$ADDON_API_ENV.tmp.$$"
 
   {
+    write_env_pair "BOOT_ID" "$(current_boot_id)"
     write_env_pair "MODULE_ID" "p9pxl_supercharger"
     write_env_pair "VERSION" "$PROFILE_VERSION"
     write_env_pair "STATUS" "Manual Refresh"
@@ -1243,19 +1215,35 @@ lock_holder_alive() {
 acquire_lock_or_exit() {
   local lock_path="$1"
   local label="$2"
-  if ! mkdir "$lock_path" 2>/dev/null; then
-    if lock_holder_alive "$lock_path"; then
-      echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
-      return 1
-    fi
-    rm -rf "$lock_path" 2>/dev/null
-    if ! mkdir "$lock_path" 2>/dev/null; then
-      echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
-      return 1
-    fi
+  if ! command -v flock >/dev/null 2>&1; then
+    echo "[FAIL] $label: flock is unavailable; refusing unsafe lock recovery."
+    return 1
   fi
   set_lock_owner_pid
-  printf '%s\n%s\n' "$LOCK_OWNER_PID" "$(current_boot_id)" > "$lock_path/pid" 2>/dev/null
+  # Keep a stable guard inode. The kernel releases this short-lived lock even
+  # after SIGKILL; there is no ownerless .reclaim directory to strand retries.
+  if ! (
+    flock -n 9 || {
+      echo "[SKIP] $label lock recovery is in progress. Try again shortly."
+      exit 1
+    }
+    if ! mkdir "$lock_path" 2>/dev/null; then
+      # A missing/incomplete record can belong to a creator still publishing it.
+      # Boot cleanup handles abandoned records whose ownership cannot be proven.
+      if [ ! -s "$lock_path/pid" ] || [ -z "$(sed -n '2p' "$lock_path/pid" 2>/dev/null)" ] || lock_holder_alive "$lock_path"; then
+        echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
+        exit 1
+      fi
+      rm -rf "$lock_path" 2>/dev/null
+      mkdir "$lock_path" 2>/dev/null || exit 1
+    fi
+    if ! printf '%s\n%s\n' "$LOCK_OWNER_PID" "$(current_boot_id)" > "$lock_path/pid" 2>/dev/null; then
+      rm -rf "$lock_path" 2>/dev/null
+      exit 1
+    fi
+  ) 9> "$lock_path.guard"; then
+    return 1
+  fi
   ACQUIRED_LOCKS="${ACQUIRED_LOCKS}${ACQUIRED_LOCKS:+ }$lock_path"
   trap 'release_locks' EXIT
   trap 'release_locks; exit 129' HUP
@@ -1320,17 +1308,28 @@ run_full_maintenance() {
   release_locks
 }
 
-list_user_apps() {
+package_inventory() {
+  local output
   if command -v cmd >/dev/null 2>&1; then
-    cmd package list packages -3 2>/dev/null | sed 's/^package://' | grep -E '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+$' | sort -fu
-    return 0
+    output="$(cmd package list packages "$@" 2>&1)" || { echo "[FAIL] Package inventory: $output" >&2; return 1; }
+  elif command -v pm >/dev/null 2>&1; then
+    output="$(pm list packages "$@" 2>&1)" || { echo "[FAIL] Package inventory: $output" >&2; return 1; }
+  else
+    echo "[FAIL] Package manager command unavailable" >&2
+    return 1
   fi
-  if command -v pm >/dev/null 2>&1; then
-    pm list packages -3 2>/dev/null | sed 's/^package://' | grep -E '^[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+$' | sort -fu
-    return 0
-  fi
-  echo "package manager command unavailable"
-  return 1
+  printf '%s\n' "$output" | awk '
+    { sub(/\r$/, "") }
+    /^package:[A-Za-z0-9_]+([.][A-Za-z0-9_]+)+$/ { sub(/^package:/, ""); print; next }
+    NF { invalid=1 }
+    END { if (invalid) { print "Invalid package inventory response" > "/dev/stderr"; exit 1 } }
+  '
+}
+
+list_user_apps() {
+  local apps
+  apps="$(package_inventory -3)" || return 1
+  printf '%s\n' "$apps" | sed '/^$/d' | LC_ALL=C sort -u
 }
 
 
@@ -1371,36 +1370,32 @@ is_blocked_core_package() {
 }
 
 list_safe_system_apps() {
-  safe_system_package_candidates | while read -r pkg; do
-    [ -n "$pkg" ] || continue
-    is_blocked_core_package "$pkg" && continue
-    if is_installed_package "$pkg"; then
-      echo "$pkg"
-    fi
-  done | sort -fu
+  local apps
+  apps="$(package_inventory --user 0)" || return 1
+  { safe_system_package_candidates; echo __INSTALLED__; printf '%s\n' "$apps"; } | awk '
+    $0 == "__INSTALLED__" { installed=1; next }
+    !installed { allowed[$0]=1; next }
+    NF && allowed[$0] && !seen[$0]++ { print }
+  ' | LC_ALL=C sort -u
 }
 
 list_optimizable_apps() {
-  tmp_seen="$MODDIR/.app_list_seen.$$"
-  : > "$tmp_seen" 2>/dev/null
-
-  list_user_apps 2>/dev/null | while read -r pkg; do
-    [ -n "$pkg" ] || continue
-    if ! grep -qx "$pkg" "$tmp_seen" 2>/dev/null; then
-      echo "$pkg" >> "$tmp_seen" 2>/dev/null
-      echo "user|$pkg"
-    fi
+  local user_apps system_apps
+  # Retain the existing scope: third-party inventory across users, safe names
+  # installed for user 0 (the previous pm path default). Never emit a partial list.
+  user_apps="$(list_user_apps)" || return 1
+  system_apps="$(list_safe_system_apps)" || return 1
+  {
+    printf '%s\n' "$user_apps"
+    echo __SYSTEM__
+    printf '%s\n' "$system_apps"
+  } | awk '
+    BEGIN { type="user" }
+    $0 == "__SYSTEM__" { type="system"; next }
+    NF && !seen[$0]++ { print type "|" $0 }
+  ' | while IFS='|' read -r type pkg; do
+    is_blocked_core_package "$pkg" || printf '%s|%s\n' "$type" "$pkg"
   done
-
-  list_safe_system_apps 2>/dev/null | while read -r pkg; do
-    [ -n "$pkg" ] || continue
-    if ! grep -qx "$pkg" "$tmp_seen" 2>/dev/null; then
-      echo "$pkg" >> "$tmp_seen" 2>/dev/null
-      echo "system|$pkg"
-    fi
-  done
-
-  rm -f "$tmp_seen" 2>/dev/null
 }
 
 is_installed_package() {
@@ -1412,115 +1407,127 @@ is_installed_package() {
   pm path "$pkg" >/dev/null 2>&1
 }
 
+prepare_art_compile() {
+  [ "${ART_HELP_READY:-0}" = 1 ] && return 0
+  ART_HELP_READY=1
+  ART_BACKGROUND=0
+  ART_VERBOSE=0
+  ART_FORCE_SUPPORTED=0
+  local help compile_help
+  help="$(cmd package help 2>/dev/null)" || help=""
+  compile_help="$(printf '%s\n' "$help" | awk '
+    /^  compile([[:space:]]|$)/ { active=1; next }
+    active && /^  [a-z][a-z-]*([[:space:]]|$)/ { exit }
+    active { print }
+  ')"
+  if printf '%s\n' "$compile_help" | grep -q 'PRIORITY_BACKGROUND' &&
+     printf '%s\n' "$compile_help" | grep -Eq '^[[:space:]]+-p[[:space:]]'; then ART_BACKGROUND=1; fi
+  printf '%s\n' "$compile_help" | grep -Eq '^[[:space:]]+-v[[:space:]]' && ART_VERBOSE=1
+  printf '%s\n' "$compile_help" | grep -Eq '^[[:space:]]+-f[[:space:]]' && ART_FORCE_SUPPORTED=1
+  return 0
+}
+
+compile_art_package() {
+  local pkg="$1"
+  local policy="${2:-incremental}"
+  local output rc
+  ART_RESULT=failed
+  case "$policy" in
+    incremental|force) ;;
+    *) echo "[FAIL] Unknown ART policy: $policy"; return 1 ;;
+  esac
+  prepare_art_compile
+  set -- package compile -m speed-profile
+  [ "$ART_BACKGROUND" = 1 ] && set -- "$@" -p PRIORITY_BACKGROUND
+  [ "$ART_VERBOSE" = 1 ] && set -- "$@" -v
+  if [ "$policy" = force ]; then
+    [ "$ART_FORCE_SUPPORTED" = 1 ] || { echo "[FAIL] Forced compilation is not advertised by this platform."; return 1; }
+    set -- "$@" -f
+  fi
+  output="$(cmd "$@" "$pkg" 2>&1)"
+  rc="$?"
+  printf '%s\n' "$output" | tail -n 40
+  if [ "$rc" -ne 0 ] || printf '%s\n' "$output" | grep -Eq '^[[:space:]]*(Failure([[:space:]:]|$)|Error:|Final Status: (FAILED|CANCELLED))'; then
+    echo "[FAIL] ART request failed for $pkg; no verification fallback was attempted."
+    return 1
+  fi
+  case "$output" in
+    *'Final Status: PERFORMED'*) ART_RESULT=performed ;;
+    *'Final Status: SKIPPED'*) ART_RESULT=skipped ;;
+    *) ART_RESULT=accepted ;;
+  esac
+  echo "[PASS] ART $ART_RESULT: $pkg"
+  [ "$ART_RESULT" = accepted ] && echo "The platform did not report whether compilation was needed."
+  return 0
+}
+
 optimize_one_app() {
+  local pkg="$1"
+  local policy="${2:-incremental}"
+  local rc
   acquire_lock_or_exit "$APP_LOCKDIR" "App optimization" || return 1
-  pkg="$1"
-  if ! is_installed_package "$pkg"; then
-    echo "[FAIL] Invalid or not installed package: $pkg"
-    log_maintenance "app optimization refused: invalid package $pkg"
+  if ! is_installed_package "$pkg" || is_blocked_core_package "$pkg"; then
+    echo "[FAIL] Invalid, unavailable, or protected package: $pkg"
     release_locks
     return 1
   fi
-  if is_blocked_core_package "$pkg"; then
-    echo "[FAIL] Refusing to optimize protected core package: $pkg"
-    echo "Reason: protected Android system service. Use listed safe system apps only."
-    log_maintenance "app optimization refused: protected core package $pkg"
-    release_locks
-    return 1
-  fi
-
-  echo "Optimizing app: $pkg"
-  echo "Mode: ART speed-profile"
-  echo "This is safe and reversible by Android. It may take a few seconds."
-  echo ""
-
-  if cmd package compile -m speed-profile -f "$pkg" 2>&1; then
-    echo "[PASS] ART optimization completed for $pkg"
-    log_maintenance "optimized app with ART speed-profile: $pkg"
-    release_locks
-    return 0
-  fi
-
-  echo "[WARN] speed-profile compile failed for $pkg"
-  echo "Trying fallback mode: verify"
-  if cmd package compile -m verify -f "$pkg" 2>&1; then
-    echo "[PASS] ART fallback verification completed for $pkg"
-    log_maintenance "optimized app with ART verify fallback: $pkg"
-    release_locks
-    return 0
-  fi
-
-  echo "[FAIL] App optimization failed for $pkg"
-  log_maintenance "app optimization failed: $pkg"
+  echo "ART $policy request: $pkg"
+  compile_art_package "$pkg" "$policy"
+  rc="$?"
+  log_maintenance "ART $policy: package=$pkg result=$ART_RESULT"
   release_locks
-  return 1
+  return "$rc"
 }
 
 optimize_package_list() {
-  label="$1"
-  apps="$2"
+  local label="$1"
+  local apps="$2"
+  local pkg total=0 performed=0 skipped=0 accepted=0 failed=0 protected=0
   acquire_lock_or_exit "$APP_LOCKDIR" "App optimization" || return 1
   echo "Optimizing $label"
-  echo "Mode: ART speed-profile with verify fallback"
-  echo "This does not change CPU, GPU, thermal, scheduler, charging, or kernel tuning."
-  echo "Core system services are intentionally excluded."
-  echo ""
-
-  if [ -z "$apps" ]; then
-    echo "[SKIP] No packages reported for $label."
-    log_maintenance "bulk app optimization skipped: no packages for $label"
-    release_locks
-    return 0
-  fi
-
-  tmp_summary="$MODDIR/.app_opt_summary.$$"
-  : > "$tmp_summary"
-  total=0
-  printf '%s\n' "$apps" | while read -r pkg; do
+  echo "Mode: incremental ART speed-profile; Android can skip unnecessary work."
+  prepare_art_compile
+  [ "$ART_BACKGROUND" = 1 ] && echo "Priority: background"
+  while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
-    is_blocked_core_package "$pkg" && { echo "[SKIP] $pkg: blocked core package"; echo skip >> "$tmp_summary"; continue; }
     total=$((total + 1))
-    echo "[$total] $pkg"
-    if cmd package compile -m speed-profile -f "$pkg" >/dev/null 2>&1; then
-      echo "  [PASS] speed-profile"
-      echo pass >> "$tmp_summary"
-    elif cmd package compile -m verify -f "$pkg" >/dev/null 2>&1; then
-      echo "  [PASS] verify fallback"
-      echo pass >> "$tmp_summary"
+    if is_blocked_core_package "$pkg"; then
+      protected=$((protected + 1))
+      echo "[SKIP] Protected core package: $pkg"
+    elif compile_art_package "$pkg" incremental; then
+      case "$ART_RESULT" in
+        performed) performed=$((performed + 1)) ;;
+        skipped) skipped=$((skipped + 1)) ;;
+        *) accepted=$((accepted + 1)) ;;
+      esac
     else
-      echo "  [WARN] compile failed or package refused"
-      echo fail >> "$tmp_summary"
+      failed=$((failed + 1))
     fi
-  done
-
-  processed="$(grep -c -E '^(pass|fail|skip)$' "$tmp_summary" 2>/dev/null)"
-  passed="$(grep -c '^pass$' "$tmp_summary" 2>/dev/null)"
-  failed="$(grep -c '^fail$' "$tmp_summary" 2>/dev/null)"
-  skipped="$(grep -c '^skip$' "$tmp_summary" 2>/dev/null)"
-  rm -f "$tmp_summary" 2>/dev/null
-  [ -z "$processed" ] && processed=0
-  [ -z "$passed" ] && passed=0
-  [ -z "$failed" ] && failed=0
-  [ -z "$skipped" ] && skipped=0
-  echo ""
-  echo "Finished. Packages processed: $processed | passed: $passed | warnings: $failed | skipped: $skipped"
-  echo "Some packages may refuse manual compile; that is normal on newer Android builds."
-  log_maintenance "bulk app optimization completed: label=$label processed=$processed passed=$passed warnings=$failed skipped=$skipped"
+  done <<EOF_APPS
+$apps
+EOF_APPS
+  echo "Finished. Packages: $total | performed: $performed | skipped: $skipped | accepted (detail unavailable): $accepted | failed: $failed | protected: $protected"
+  log_maintenance "ART batch: label=$label performed=$performed skipped=$skipped accepted=$accepted failed=$failed protected=$protected"
   release_locks
+  [ "$failed" -eq 0 ]
 }
 
 optimize_user_apps() {
-  apps="$(list_user_apps 2>/dev/null)"
+  local apps
+  apps="$(list_user_apps)" || return 1
   optimize_package_list "third-party user apps" "$apps"
 }
 
 optimize_safe_system_apps() {
-  apps="$(list_safe_system_apps 2>/dev/null)"
+  local apps
+  apps="$(list_safe_system_apps)" || return 1
   optimize_package_list "safe system apps" "$apps"
 }
 
 optimize_all_listed_apps() {
-  apps="$(list_optimizable_apps 2>/dev/null | cut -d'|' -f2- | sort -fu)"
+  local apps
+  apps="$(list_optimizable_apps)" || return 1
+  apps="$(printf '%s\n' "$apps" | cut -d'|' -f2- | LC_ALL=C sort -u)"
   optimize_package_list "listed apps and safe system apps" "$apps"
 }
 
@@ -1554,66 +1561,143 @@ run_system_dexopt_job() {
   return "$rc"
 }
 
-maintenance_running() {
-  [ -f "$MAINT_PIDFILE" ] || return 1
-  pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
-  state="$(env_value STATE "$MAINT_STATE")"
-  maint_label="$(env_value LABEL "$MAINT_STATE")"
-  [ -z "$maint_label" ] && maint_label="One-tap maintenance"
-  case "$pid" in
-    ''|*[!0-9]*)
-      rm -f "$MAINT_PIDFILE" 2>/dev/null
-      [ "$state" = "running" ] && write_maintenance_state "interrupted" "$maint_label" ""
-      return 1
-      ;;
-  esac
-  if [ "$state" != "running" ]; then
-    rm -f "$MAINT_PIDFILE" 2>/dev/null
-    return 1
-  fi
-  if kill -0 "$pid" 2>/dev/null; then
+read_task_status() {
+  local state_file="$1"
+  local pid_file="$2"
+  local idle_label="$3"
+  local task_log="$4"
+  local snapshot state pid recorded_pid
+  snapshot="$(cat "$state_file" 2>/dev/null)"
+  if [ -z "$snapshot" ]; then
+    write_env_pair STATE idle
+    write_env_pair LABEL "$idle_label"
+    write_env_pair PID ""
+    write_env_pair LOG "$task_log"
     return 0
   fi
-  rm -f "$MAINT_PIDFILE" 2>/dev/null
-  write_maintenance_state "interrupted" "$maint_label" ""
-  return 1
+  state="$(printf '%s\n' "$snapshot" | env_value STATE -)"
+  pid="$(printf '%s\n' "$snapshot" | env_value PID -)"
+  if [ "$state" = running ]; then
+    recorded_pid="$(cat "$pid_file" 2>/dev/null)"
+    case "$pid" in
+      ''|0|1|*[!0-9]*) state=interrupted ;;
+      *) [ "$pid" = "$recorded_pid" ] && kill -0 "$pid" 2>/dev/null || state=interrupted ;;
+    esac
+  fi
+  if [ "$state" = interrupted ]; then
+    # Report an interruption without racing the worker's atomic state rename.
+    printf '%s\n' "$snapshot" | sed 's/^STATE=.*/STATE="interrupted"/;s/^PID=.*/PID=""/'
+  else
+    printf '%s\n' "$snapshot"
+  fi
+}
+
+start_background_task() {
+  local task_lock="$1"
+  local task_pidfile="$2"
+  local task_log="$3"
+  local task_writer="$4"
+  local task_label="$5"
+  local task_pid task_rc task_launcher
+  shift 5
+
+  # Reserve the entire lifecycle before touching shared logs or state. The
+  # operation keeps its separate lock so synchronous CLI calls remain protected.
+  acquire_lock_or_exit "$task_lock" "$task_label" || return 1
+  task_launcher="$LOCK_OWNER_PID"
+  (
+    set_lock_owner_pid
+    task_pid="$LOCK_OWNER_PID"
+    trap 'rm -f "$task_pidfile" 2>/dev/null; release_locks' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    printf '%s\n%s\n' "$task_pid" "$(current_boot_id)" > "$task_lock/pid.$task_pid" &&
+      mv -f "$task_lock/pid.$task_pid" "$task_lock/pid" || exit 1
+    echo "$task_pid" > "$task_pidfile" || exit 1
+    {
+      echo "Supercharger background task"
+      echo "Started: $(date)"
+      echo "Job: $task_label"
+      echo ""
+    } > "$task_log" || exit 1
+    "$task_writer" running "$task_label" "$task_pid" || exit 1
+    : > "$task_lock/ready" || exit 1
+    while [ ! -f "$task_lock/accepted" ]; do
+      kill -0 "$task_launcher" 2>/dev/null || exit 1
+      sleep 0.05
+    done
+
+    # Isolate the operation's variables and lock traps from lifecycle ownership.
+    (
+      ACQUIRED_LOCKS=""
+      trap - EXIT HUP INT TERM
+      "$@"
+    ) >> "$task_log" 2>&1
+    task_rc="$?"
+    echo "Finished: $(date)" >> "$task_log"
+    if [ "$task_rc" -eq 0 ]; then
+      echo "Result: completed" >> "$task_log"
+      "$task_writer" done "$task_label" ""
+    else
+      echo "Result: completed with warnings or failure" >> "$task_log"
+      "$task_writer" failed "$task_label" ""
+    fi
+    log_maintenance "background task finished: $task_label (rc=$task_rc)"
+    STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
+    exit "$task_rc"
+  ) >/dev/null 2>&1 &
+  task_pid="$!"
+
+  # Ownership now belongs to the worker; the launcher must never publish state
+  # after it, or remove its lock when the WebUI command exits.
+  ACQUIRED_LOCKS=""
+  trap - EXIT HUP INT TERM
+  while [ -d "$task_lock" ] && [ ! -f "$task_lock/ready" ]; do
+    kill -0 "$task_pid" 2>/dev/null || { echo "[FAIL] Background task could not start."; return 1; }
+    sleep 0.05
+  done
+  [ -f "$task_lock/ready" ] && touch "$task_lock/accepted" || {
+    echo "[FAIL] Background task could not initialize its state."
+    return 1
+  }
+  echo "Started background task."
+  echo "Job: $task_label"
+  echo "PID: $task_pid"
+  echo "The WebUI will poll progress without freezing."
 }
 
 write_maintenance_state() {
-  state="$1"
-  label="$2"
-  pid="$3"
-  tmp="$MAINT_STATE.tmp.$$"
+  local state="$1"
+  local label="$2"
+  local pid="$3"
+  local tmp="$MAINT_STATE.tmp.$$"
   {
     write_env_pair "STATE" "$state"
     write_env_pair "LABEL" "$label"
     write_env_pair "PID" "$pid"
     write_env_pair "UPDATED" "$(date)"
     write_env_pair "LOG" "$MAINT_TASK_LOG"
-  } > "$tmp" 2>/dev/null
-  mv -f "$tmp" "$MAINT_STATE" 2>/dev/null
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$MAINT_STATE" 2>/dev/null
 }
 
 maintenance_status() {
-  if maintenance_running; then
-    pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
-    label="$(env_value LABEL "$MAINT_STATE")"
-    [ -z "$label" ] && label="One-tap maintenance"
-    write_maintenance_state "running" "$label" "$pid"
-  elif [ -f "$MAINT_STATE" ]; then
-    state="$(env_value STATE "$MAINT_STATE")"
-    label="$(env_value LABEL "$MAINT_STATE")"
-    if [ "$state" = "running" ]; then
-      rm -f "$MAINT_PIDFILE" 2>/dev/null
-      [ -z "$label" ] && label="One-tap maintenance"
-      write_maintenance_state "interrupted" "$label" ""
-    fi
-    cat "$MAINT_STATE" 2>/dev/null
-    return 0
+  read_task_status "$MAINT_STATE" "$MAINT_PIDFILE" "No maintenance task running" "$MAINT_TASK_LOG"
+}
+
+task_progress() {
+  local log_file
+  case "$1" in
+    apps) app_opt_status || return 1; log_file="$APP_OPT_LOG" ;;
+    maintenance) maintenance_status || return 1; log_file="$MAINT_TASK_LOG" ;;
+    *) echo "Unknown task type" >&2; return 1 ;;
+  esac
+  printf '\n__SUPERCHARGER_LOG__\n'
+  if [ -s "$log_file" ]; then
+    tail -c 16384 "$log_file" | tail -n 70
   else
-    write_maintenance_state "idle" "No maintenance task running" ""
+    echo "No task output yet."
   fi
-  cat "$MAINT_STATE" 2>/dev/null
 }
 
 maintenance_task_log() {
@@ -1625,112 +1709,26 @@ maintenance_task_log() {
 }
 
 run_maintenance_background() {
-  label="One-tap maintenance"
-  if maintenance_running; then
-    pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
-    echo "[SKIP] One-tap maintenance is already running."
-    echo "PID: $pid"
-    echo "Use the progress box to watch the current job."
-    return 1
-  fi
-
-  : > "$MAINT_TASK_LOG" 2>/dev/null
-  {
-    echo "Supercharger One-Tap Maintenance"
-    echo "Started: $(date)"
-    echo "Job: $label"
-    echo ""
-  } >> "$MAINT_TASK_LOG" 2>/dev/null
-
-  (
-    run_full_maintenance
-    rc="$?"
-    echo "" >> "$MAINT_TASK_LOG"
-    echo "Finished: $(date)" >> "$MAINT_TASK_LOG"
-    rm -f "$MAINT_PIDFILE" 2>/dev/null
-    if [ "$rc" -eq 0 ]; then
-      echo "Result: completed" >> "$MAINT_TASK_LOG"
-      write_maintenance_state "done" "$label" ""
-      log_maintenance "one-tap maintenance background job completed"
-    else
-      echo "Result: completed with warnings or failure" >> "$MAINT_TASK_LOG"
-      write_maintenance_state "failed" "$label" ""
-      log_maintenance "one-tap maintenance background job failed or returned warnings"
-    fi
-    STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
-    exit "$rc"
-  ) >> "$MAINT_TASK_LOG" 2>&1 &
-
-  pid="$!"
-  echo "$pid" > "$MAINT_PIDFILE" 2>/dev/null
-  write_maintenance_state "running" "$label" "$pid"
-  STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
-  echo "Started background one-tap maintenance."
-  echo "Job: $label"
-  echo "PID: $pid"
-  echo "The WebUI will poll progress without freezing."
-}
-
-app_opt_running() {
-  [ -f "$APP_OPT_PIDFILE" ] || return 1
-  pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
-  state="$(env_value STATE "$APP_OPT_STATE")"
-  opt_label="$(env_value LABEL "$APP_OPT_STATE")"
-  [ -z "$opt_label" ] && opt_label="App optimization"
-  case "$pid" in
-    ''|*[!0-9]*)
-      rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-      [ "$state" = "running" ] && write_app_opt_state "interrupted" "$opt_label" ""
-      return 1
-      ;;
-  esac
-  if [ "$state" != "running" ]; then
-    rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-    return 1
-  fi
-  if kill -0 "$pid" 2>/dev/null; then
-    return 0
-  fi
-  rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-  write_app_opt_state "interrupted" "$opt_label" ""
-  return 1
+  start_background_task "$MAINT_ASYNC_LOCKDIR" "$MAINT_PIDFILE" "$MAINT_TASK_LOG" \
+    write_maintenance_state "One-tap maintenance" run_full_maintenance
 }
 
 write_app_opt_state() {
-  state="$1"
-  label="$2"
-  pid="$3"
-  tmp="$APP_OPT_STATE.tmp.$$"
+  local state="$1"
+  local label="$2"
+  local pid="$3"
+  local tmp="$APP_OPT_STATE.tmp.$$"
   {
     write_env_pair "STATE" "$state"
     write_env_pair "LABEL" "$label"
     write_env_pair "PID" "$pid"
     write_env_pair "UPDATED" "$(date)"
     write_env_pair "LOG" "$APP_OPT_LOG"
-  } > "$tmp" 2>/dev/null
-  mv -f "$tmp" "$APP_OPT_STATE" 2>/dev/null
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$APP_OPT_STATE" 2>/dev/null
 }
 
 app_opt_status() {
-  if app_opt_running; then
-    pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
-    label="$(env_value LABEL "$APP_OPT_STATE")"
-    [ -z "$label" ] && label="App optimization"
-    write_app_opt_state "running" "$label" "$pid"
-  elif [ -f "$APP_OPT_STATE" ]; then
-    state="$(env_value STATE "$APP_OPT_STATE")"
-    label="$(env_value LABEL "$APP_OPT_STATE")"
-    if [ "$state" = "running" ]; then
-      rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-      [ -z "$label" ] && label="App optimization"
-      write_app_opt_state "interrupted" "$label" ""
-    fi
-    cat "$APP_OPT_STATE" 2>/dev/null
-    return 0
-  else
-    write_app_opt_state "idle" "No app optimization running" ""
-  fi
-  cat "$APP_OPT_STATE" 2>/dev/null
+  read_task_status "$APP_OPT_STATE" "$APP_OPT_PIDFILE" "No app optimization running" "$APP_OPT_LOG"
 }
 
 app_opt_log() {
@@ -1742,64 +1740,26 @@ app_opt_log() {
 }
 
 run_app_opt_background() {
-  mode="$1"
-  target="$2"
+  local mode="$1"
+  local target="$2"
   case "$mode" in
-    all) label="Optimizing listed apps" ;;
-    system) label="Optimizing safe system apps" ;;
-    selected) label="Optimizing selected app: $target" ;;
-    dexopt) label="Android system dexopt job" ;;
+    all)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Optimizing listed apps" optimize_all_listed_apps ;;
+    system)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Optimizing safe system apps" optimize_safe_system_apps ;;
+    selected)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Optimizing selected app: $target" optimize_one_app "$target" ;;
+    selected-force)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Recompiling selected app: $target" optimize_one_app "$target" force ;;
+    dexopt)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Android system dexopt job" run_system_dexopt_job ;;
     *) echo "[FAIL] Unknown app optimization mode: $mode"; return 1 ;;
   esac
-
-  if app_opt_running; then
-    pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
-    echo "[SKIP] App optimization is already running."
-    echo "PID: $pid"
-    echo "Use the progress box to watch the current job."
-    return 1
-  fi
-
-  : > "$APP_OPT_LOG" 2>/dev/null
-  {
-    echo "Supercharger App Optimization"
-    echo "Started: $(date)"
-    echo "Job: $label"
-    echo ""
-  } >> "$APP_OPT_LOG" 2>/dev/null
-
-  (
-    case "$mode" in
-      all) optimize_all_listed_apps ;;
-      system) optimize_safe_system_apps ;;
-      selected) optimize_one_app "$target" ;;
-      dexopt) run_system_dexopt_job ;;
-    esac
-    rc="$?"
-    echo "" >> "$APP_OPT_LOG"
-    echo "Finished: $(date)" >> "$APP_OPT_LOG"
-    rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-    if [ "$rc" -eq 0 ]; then
-      echo "Result: completed" >> "$APP_OPT_LOG"
-      write_app_opt_state "done" "$label" ""
-      log_maintenance "app optimization completed: $label"
-    else
-      echo "Result: completed with warnings or failure" >> "$APP_OPT_LOG"
-      write_app_opt_state "failed" "$label" ""
-      log_maintenance "app optimization completed with warnings/failure: $label"
-    fi
-    STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
-    exit "$rc"
-  ) >> "$APP_OPT_LOG" 2>&1 &
-
-  pid="$!"
-  echo "$pid" > "$APP_OPT_PIDFILE" 2>/dev/null
-  write_app_opt_state "running" "$label" "$pid"
-  STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
-  echo "Started background app optimization."
-  echo "Job: $label"
-  echo "PID: $pid"
-  echo "The WebUI will poll progress without freezing."
 }
 
 clear_maintenance_log() {
@@ -1930,10 +1890,13 @@ case "$1" in
   optimize-apps-async) run_app_opt_background all ;;
   dexopt-job-async) run_app_opt_background dexopt ;;
   app-opt-status) app_opt_status ;;
+  app-opt-progress) task_progress apps ;;
+  maintenance-progress) task_progress maintenance ;;
+  optimize-app-force-async) run_app_opt_background selected-force "$2" ;;
   app-opt-log) app_opt_log ;;
   clear-maintenance) clear_maintenance_log ;;
   *)
-    echo "Usage: $0 {status|snapshot|processes|verify|reapply-safe|health|repair-dashboard|cleanup-updater|maintenance-all|storage|profiles|profile-status|thermal-detect|thermal-status|thermal-enable|thermal-disable|thermal-set-profile|thermal-profiles|set-profile|list-apps|list-user-apps|list-system-apps|optimize-app|optimize-user-apps|optimize-system-apps|optimize-apps|dexopt-job|optimize-app-async|optimize-system-apps-async|optimize-apps-async|dexopt-job-async|app-opt-status|app-opt-log|clear-maintenance|maintenance-all-async|maintenance-status|maintenance-log|gpu-scan}"
+    echo "Usage: $0 {status|snapshot|processes|verify|reapply-safe|health|repair-dashboard|cleanup-updater|maintenance-all|storage|profiles|profile-status|thermal-detect|thermal-status|thermal-enable|thermal-disable|thermal-set-profile|thermal-profiles|set-profile|list-apps|list-user-apps|list-system-apps|optimize-app|optimize-user-apps|optimize-system-apps|optimize-apps|dexopt-job|optimize-app-async|optimize-system-apps-async|optimize-apps-async|dexopt-job-async|app-opt-status|app-opt-log|app-opt-progress|maintenance-progress|optimize-app-force-async|clear-maintenance|maintenance-all-async|maintenance-status|maintenance-log|gpu-scan}"
     exit 1
     ;;
 esac

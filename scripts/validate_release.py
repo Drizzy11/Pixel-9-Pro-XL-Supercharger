@@ -2,12 +2,17 @@
 import argparse
 import json
 import re
+import stat
 import sys
 import zipfile
 from pathlib import Path
 
 
 RUNTIME_NAMES = {
+    ".maintenance.lock.guard",
+    ".app_optimization.lock.guard",
+    ".maintenance_task.lock.guard",
+    ".app_optimization_task.lock.guard",
     "current_profile",
     "thermal_current_profile",
     "thermal_control.env",
@@ -54,6 +59,8 @@ ZIP_BLOCKED_ROOT = {
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
+    "AGENTS.md",
+    "TODO.md",
 }
 
 REQUIRED = {
@@ -157,8 +164,12 @@ def check_main_metadata(root):
 
     try:
         update = json.loads((root / "update.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         errors.append(f"invalid update.json: {exc}")
+        update = {}
+
+    if not isinstance(update, dict):
+        errors.append("invalid update.json: expected a JSON object")
         update = {}
 
     if update.get("version") != version:
@@ -204,9 +215,12 @@ def check_main_metadata(root):
 
 def check_source(root, profile):
     errors = []
-    for required in REQUIRED[profile]:
-        if not (root / required).exists():
+    required_paths = REQUIRED[profile] + (["README.md", "changelog.md"] if profile == "main" else [])
+    for required in required_paths:
+        if not (root / required).is_file():
             errors.append(f"missing source path: {required}")
+        elif required.endswith(".sh") and b"\r\n" in (root / required).read_bytes():
+            errors.append(f"CRLF line endings in source script: {required}; use LF for Android")
 
     for path in root.rglob("*"):
         if not path.is_file():
@@ -224,8 +238,11 @@ def check_source(root, profile):
     return errors
 
 
-def zip_has(names, required):
-    return required in names or any(name.startswith(required.rstrip("/") + "/") for name in names)
+def safe_zip_path(name):
+    # Check the raw archive name before normalization can hide an absolute path.
+    return bool(name) and "\x00" not in name and "\\" not in name and ":" not in name and all(
+        part not in ("", ".", "..") for part in name.removesuffix("/").split("/")
+    )
 
 
 def zip_mode(info):
@@ -244,17 +261,26 @@ def check_zip(path, profile):
     errors = []
     with zipfile.ZipFile(path) as archive:
         infos = archive.infolist()
-        names = {norm(info.filename) for info in infos}
+        names = {
+            info.orig_filename for info in infos
+            if safe_zip_path(info.orig_filename) and not info.is_dir()
+            and stat.S_IFMT(info.external_attr >> 16) in (0, stat.S_IFREG)
+        }
 
         for required in REQUIRED[profile]:
-            if not zip_has(names, required):
+            if required not in names:
                 errors.append(f"missing package path: {required}")
 
+        seen = set()
         for info in infos:
-            name = norm(info.filename)
-            base = Path(name).name
-            if not name:
+            if not safe_zip_path(info.orig_filename):
+                errors.append(f"unsafe package path: {info.orig_filename}")
                 continue
+            name = info.orig_filename.removesuffix("/")
+            if name in seen:
+                errors.append(f"duplicate package path: {name}")
+            seen.add(name)
+            base = Path(name).name
             if name in ACTIVE_OVERLAY_PATHS:
                 errors.append(f"active thermal overlay found in package: {name}")
             if base in RUNTIME_NAMES:
@@ -264,10 +290,16 @@ def check_zip(path, profile):
 
             mode = zip_mode(info)
             expected = expected_zip_mode(name, info.is_dir())
-            if mode and (mode & 0o777) != expected:
-                errors.append(f"unexpected mode {oct(mode & 0o777)} for {name}; expected {oct(expected)}")
+            file_type = stat.S_IFMT(info.external_attr >> 16)
+            expected_type = stat.S_IFDIR if info.is_dir() else stat.S_IFREG
+            if file_type not in (0, expected_type):
+                errors.append(f"unsupported file type for package path: {name}")
+            if mode and mode != expected:
+                errors.append(f"unexpected mode {oct(mode)} for {name}; expected {oct(expected)}")
             if not mode:
                 errors.append(f"missing Unix mode for package path: {name}")
+            if not info.is_dir() and name.endswith(".sh") and b"\r\n" in archive.read(info):
+                errors.append(f"CRLF line endings in package script: {name}; use LF for Android")
     return errors
 
 

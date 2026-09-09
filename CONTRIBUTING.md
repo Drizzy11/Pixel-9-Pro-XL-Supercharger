@@ -47,27 +47,61 @@ Every change should hold to the behavior the module already promises:
 
 ## Running the checks
 
-These are the same checks the release workflow runs. Run them before opening a
-pull request:
+Use Python 3.10+, Node.js 24, Bash, and Linux `flock`. The same entry point runs locally,
+on branch pushes and pull requests, and before release packaging:
 
 ```sh
-bash -n customize.sh service.sh uninstall.sh bin/supercharger_ctl.sh
-node --check webroot/index.mjs
-node --test scripts/webui_regression.test.mjs
-python3 -m json.tool update.json >/dev/null
-python3 -m json.tool common/repo.json >/dev/null
-find thermal_profiles -name '*.json' -print0 | xargs -0 -r -n1 python3 -m json.tool >/dev/null
-python3 scripts/validate_release.py --profile main --source .
+python3 scripts/check.py
 ```
+
+On Windows, use your installed Python command and Git for Windows Bash:
+
+```powershell
+python scripts/check.py --shell 'C:\Program Files\Git\bin\bash.exe'
+wsl -d Ubuntu -- python3 -m unittest discover -s scripts -p 'test_*.py'
+```
+
+Native Git Bash runs the Windows-compatible checks and explicitly skips Linux
+kernel-lock tests. The WSL command above runs the full Python suite, including
+real `flock` behavior. CI runs the complete suite on Ubuntu and separately tests
+native Windows process containment.
+
+The checks parse every module shell script individually, check WebUI JavaScript
+syntax, run WebUI and Python regressions, parse JSON, and validate release source.
+They do not execute Android tuning on the development host. Keep scripts in LF
+format; `.gitattributes` preserves this on Windows and the validator rejects CRLF
+scripts in source and ZIP files. Shell parsing does not replace Android runtime
+testing.
 
 `validate_release.py` also enforces cross-file consistency: the version in
 `module.prop`, `update.json`, `customize.sh`, `service.sh`, `README.md`, and the
-newest `changelog.md` section must all agree. The README must contain exactly one
-version marker.
+newest `changelog.md` section must all agree. All README release version markers
+must match the module's version.
+
+To validate a locally built release ZIP, keep it outside the source tree and run:
+
+```sh
+python3 scripts/validate_release.py --profile main --skip-source --zip /path/to/module.zip
+```
+
+The ZIP validator requires actual files at the mandatory paths and rejects unsafe
+or duplicate paths, symbolic links, unexpected permissions, runtime state, and
+development-only content. Package creation still uses the explicit allowlist in
+`.github/workflows/release.yml`.
 
 If you change WebUI state handling, add coverage to
 `scripts/webui_regression.test.mjs`. It stubs the KernelSU `ksu.exec` bridge, so
 you can exercise the dashboard without a device.
+
+Shell lifecycle coverage lives in `scripts/test_task_lifecycle.py`. It extracts
+named functions into temporary directories and replaces Android operations with
+test doubles; it never launches the complete Android entry scripts on the host.
+See [Testing](docs/TESTING.md) for covered scenarios and device validation limits.
+Installation, update persistence, and uninstall cleanup are covered by
+`scripts/test_install_lifecycle.py` using the same functions-only sandbox.
+App inventory batching, ART capability probing, result handling, and the bounded
+progress response are covered by `scripts/test_optimization_policy.py`. Its Android
+package-manager commands are test doubles; it never compiles host or device apps.
 
 ## Testing on a device
 

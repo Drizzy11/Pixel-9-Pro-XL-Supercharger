@@ -1846,7 +1846,10 @@ start_temp_dashboard_updater() {
 
     (
         last_temp_decic="$initial_temp"
-        trap 'rm -f "$PIDFILE" 2>/dev/null; rm -rf "$LOCKDIR" 2>/dev/null' EXIT HUP INT TERM
+        trap 'rm -f "$PIDFILE" 2>/dev/null; rm -rf "$LOCKDIR" 2>/dev/null' EXIT
+        trap 'exit 129' HUP
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
         while true; do
             sleep "$TEMP_UPDATE_INTERVAL"
             current_temp_decic="$(get_battery_temp_decic)"
@@ -1880,7 +1883,10 @@ prepare_logs() {
 }
 
 clear_stale_task_state() {
-    rm -rf "$MAINT_LOCKDIR" "$APP_LOCKDIR" 2>/dev/null
+    local task_lock
+    for task_lock in "$MAINT_LOCKDIR" "$APP_LOCKDIR" "$MODDIR/.maintenance_task.lock" "$MODDIR/.app_optimization_task.lock"; do
+        rm -rf "$task_lock" "$task_lock.reclaim" 2>/dev/null
+    done
     rm -f "$MAINT_PIDFILE" "$APP_OPT_PIDFILE" 2>/dev/null
 }
 

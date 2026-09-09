@@ -10,24 +10,28 @@ ui_print "  Pixel 9 Series Supercharger"
 ui_print "  Build: v2.6.7"
 ui_print "*********************************************************"
 
-case "$DEVICE" in
-  komodo|caiman|comet|tokay)
-    ui_print " [OK] Target hardware verified: $MODEL ($DEVICE)"
-    ;;
-  *)
-    ui_print " [ERROR] Incompatible device: $DEVICE"
-    abort " Pixel 9 / Pixel 9 Pro / Pixel 9 Pro XL / Pixel 9 Pro Fold only "
-    ;;
-esac
+validate_install_environment() {
+  case "$DEVICE" in
+    komodo|caiman|comet|tokay)
+      ui_print " [OK] Target hardware verified: $MODEL ($DEVICE)"
+      ;;
+    *)
+      ui_print " [ERROR] Incompatible device: $DEVICE"
+      abort " Pixel 9 / Pixel 9 Pro / Pixel 9 Pro XL / Pixel 9 Pro Fold only "
+      ;;
+  esac
 
-# Magisk 31.0 (31000) should be used as minMagisk only once an official APK exists.
-# Effective Magisk requirement remains 30.7 (versionCode 30700).
-MIN_MAGISK_CODE=30700
-if [ -z "$KSU" ] && [ -z "$APATCH" ] && [ -n "$MAGISK_VER_CODE" ]; then
-  if [ "$MAGISK_VER_CODE" -lt "$MIN_MAGISK_CODE" ]; then
-    abort " Magisk 30.7 or newer is required "
+  # Magisk 31.0 (31000) should be used as minMagisk only once an official APK exists.
+  # Effective Magisk requirement remains 30.7 (versionCode 30700).
+  MIN_MAGISK_CODE=30700
+  if [ -z "$KSU" ] && [ -z "$APATCH" ] && [ -n "$MAGISK_VER_CODE" ]; then
+    if [ "$MAGISK_VER_CODE" -lt "$MIN_MAGISK_CODE" ]; then
+      abort " Magisk 30.7 or newer is required "
+    fi
   fi
-fi
+}
+
+validate_install_environment
 
 ui_print " [INFO] Android: ${RELEASE:-unknown} / SDK ${SDK:-unknown}"
 ui_print " [INFO] Preparing profile manager"
@@ -53,17 +57,21 @@ restore_persistent_state() {
   echo "$state_value" > "$state_dest"
 }
 
-rm -f "$MODPATH/dashboard_updater.pid" "$MODPATH/.dashboard_updater.lock" 2>/dev/null
-rm -f "$MODPATH/app_optimization.pid" "$MODPATH/maintenance_task.pid" 2>/dev/null
-rm -rf "$MODPATH/.app_optimization.lock" "$MODPATH/.maintenance.lock" 2>/dev/null
-[ -f "$MODPATH/debug.log" ] && mv -f "$MODPATH/debug.log" "$MODPATH/debug.previous.log" 2>/dev/null
-touch "$MODPATH/debug.log" "$MODPATH/maintenance.log" "$MODPATH/module_status.env" "$MODPATH/addon_api.env" "$MODPATH/support_snapshot.txt"
-restore_persistent_state current_profile "$MODPATH/current_profile"
-rm -f "$MODPATH/system/vendor/etc/thermal_info_config.json" \
-      "$MODPATH/system/vendor/etc/thermal_info_config_lpm.json" \
-      "$MODPATH/system/vendor/etc/thermal_info_config_charge.json" 2>/dev/null
-rmdir "$MODPATH/system/vendor/etc" "$MODPATH/system/vendor" "$MODPATH/system" 2>/dev/null || true
-cat > "$MODPATH/thermal_control.env" <<'EOF_THERMAL_DEFAULT'
+initialize_module_state() {
+  local task_lock
+  rm -f "$MODPATH/dashboard_updater.pid" 2>/dev/null
+  rm -f "$MODPATH/app_optimization.pid" "$MODPATH/maintenance_task.pid" 2>/dev/null
+  for task_lock in "$MODPATH/.dashboard_updater.lock" "$MODPATH/.app_optimization.lock" "$MODPATH/.maintenance.lock" "$MODPATH/.app_optimization_task.lock" "$MODPATH/.maintenance_task.lock"; do
+    rm -rf "$task_lock" "$task_lock.reclaim" 2>/dev/null
+  done
+  [ -f "$MODPATH/debug.log" ] && mv -f "$MODPATH/debug.log" "$MODPATH/debug.previous.log" 2>/dev/null
+  touch "$MODPATH/debug.log" "$MODPATH/maintenance.log" "$MODPATH/module_status.env" "$MODPATH/addon_api.env" "$MODPATH/support_snapshot.txt"
+  restore_persistent_state current_profile "$MODPATH/current_profile"
+  rm -f "$MODPATH/system/vendor/etc/thermal_info_config.json" \
+        "$MODPATH/system/vendor/etc/thermal_info_config_lpm.json" \
+        "$MODPATH/system/vendor/etc/thermal_info_config_charge.json" 2>/dev/null
+  rmdir "$MODPATH/system/vendor/etc" "$MODPATH/system/vendor" "$MODPATH/system" 2>/dev/null || true
+  cat > "$MODPATH/thermal_control.env" <<'EOF_THERMAL_DEFAULT'
 THERMAL_CONTROL_MERGED="1"
 THERMAL_CONTROL_AVAILABLE="1"
 THERMAL_CONTROL_ENABLED="0"
@@ -73,7 +81,10 @@ THERMAL_CONTROL_OVERLAY_ACTIVE="0"
 THERMAL_CONTROL_REBOOT_REQUIRED="0"
 THERMAL_CONTROL_MESSAGE="Off by default for a safe first boot. Enable it after the phone boots normally."
 EOF_THERMAL_DEFAULT
-restore_persistent_state thermal_current_profile "$MODPATH/thermal_current_profile"
+  restore_persistent_state thermal_current_profile "$MODPATH/thermal_current_profile"
+}
+
+initialize_module_state
 
 if [ -f "$MODPATH/service.sh" ]; then
   tmp="$MODPATH/service.sh.tmp.$$"

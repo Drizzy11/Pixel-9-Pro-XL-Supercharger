@@ -25,6 +25,8 @@ dashboard_updater.pid
 *.pid
 *.lock/
 .*.lock/
+*.lock.reclaim/
+*.lock.guard
 
 # Editor and OS noise
 __pycache__/

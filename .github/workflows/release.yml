@@ -70,19 +70,18 @@ jobs:
           echo "asset_basename=${ASSET_BASENAME}" >> "$GITHUB_OUTPUT"
           echo "release_title=${RELEASE_TITLE}" >> "$GITHUB_OUTPUT"
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
       - name: Run release preflight
         shell: bash
         run: |
           set -euo pipefail
           set -x
 
-          bash -n customize.sh service.sh uninstall.sh bin/supercharger_ctl.sh
-          node --check webroot/index.mjs
-          node --test scripts/webui_regression.test.mjs
-          python3 -m json.tool update.json >/dev/null
-          python3 -m json.tool common/repo.json >/dev/null
-          find thermal_profiles -name '*.json' -print0 | xargs -0 -r -n1 python3 -m json.tool >/dev/null
-          python3 scripts/validate_release.py --profile main --source .
+          python3 scripts/check.py
 
       - name: Create module ZIP
         shell: bash
